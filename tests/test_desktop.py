@@ -111,7 +111,7 @@ def test_kits_models_and_composites_are_found(tmp_path):
     (lib / "images" / "hidden.3dm").write_bytes(b"x")     # output folders are not walked
     s = links.scan([lib])
     kits = {k["site"]: k for k in s["kits"]}
-    assert kits["plaza"]["source"] == "groundtrack" and kits["plaza"]["modules"] == [
+    assert kits["plaza"]["source"] == "motus" and kits["plaza"]["modules"] == [
         "plaza_whole", "plaza1"]
     assert kits["plaza"]["scene"].endswith("plaza_pop.hipnc")
     assert next(k for k in s["kits"] if k["name"] == "_lacuna_")["source"] == "Grasshopper"
@@ -174,7 +174,7 @@ def test_http_routes_and_guards(app):
 
     try:
         with urllib.request.urlopen(base + "/") as r:
-            assert b"groundtrack" in r.read()
+            assert b"motus" in r.read()
         with urllib.request.urlopen(base + "/static/app.css") as r:
             assert r.headers["Content-Type"].startswith("text/css")
         for bad in ("/static/../desktop.py", "/static/..%2Fdesktop.py"):
@@ -201,3 +201,91 @@ def test_http_routes_and_guards(app):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def _fake_sites(tmp_path, n=4):
+    (tmp_path / "sites").mkdir()
+    for i in range(n):
+        (tmp_path / "sites" / f"s{i}.yaml").write_text(f"site: s{i}\n", encoding="utf-8")
+
+
+def test_allowed_roots_refresh_once_for_concurrent_calls(tmp_path, monkeypatch):
+    from groundtrack import ui
+
+    _fake_sites(tmp_path)
+    calls = []
+
+    class Cfg:
+        def __init__(self, f):
+            self.f = f
+
+        def path(self, key):
+            return (tmp_path / f"out_{self.f.stem}") if key == "output_dir" else None
+
+    def slow_load(f):
+        calls.append(f.name)
+        time.sleep(0.05)
+        return Cfg(f)
+
+    monkeypatch.setattr(ui, "_load", slow_load)
+    app = DesktopApp(tmp_path, links.Settings(tmp_path / "desktop.json"))
+    expect = app.allowed_roots()                  # first fill
+    assert len(calls) == 4 and (tmp_path / "out_s0").resolve() in expect
+    calls.clear()
+    app._roots = (time.time() - 10, app._roots[1])  # expired
+    out = []
+    ts = [threading.Thread(target=lambda: out.append(app.allowed_roots())) for _ in range(20)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert len(calls) == 4                         # each config parsed once
+    assert all(sorted(map(str, r)) == sorted(map(str, expect)) for r in out)
+
+
+def test_allowed_roots_pick_up_a_changed_config(tmp_path, monkeypatch):
+    _fake_sites(tmp_path, 1)
+    app = DesktopApp(tmp_path, links.Settings(tmp_path / "desktop.json"))
+    before = app.allowed_roots()
+    (tmp_path / "sites" / "s0.yaml").write_text(
+        "site: s0\noutput_dir: elsewhere/out\n", encoding="utf-8")
+    assert app.allowed_roots() == before           # still cached
+    app._roots = (time.time() - 10, app._roots[1])
+    assert (tmp_path / "sites" / "elsewhere" / "out").resolve() in app.allowed_roots()
+    # invalidation never serves the old roots
+    app._roots = (0.0, [])
+    assert (tmp_path / "sites" / "elsewhere" / "out").resolve() in app.allowed_roots()
+
+
+def test_webview_busy_error_is_a_clean_message(tmp_path, monkeypatch, capsys):
+    import sys
+    import types
+
+    from groundtrack import desktop
+
+    def fake_start(*a, **k):
+        raise RuntimeError("COM error HRESULT 0x800700AA")
+
+    fake = types.SimpleNamespace(
+        create_window=lambda *a, **k: types.SimpleNamespace(
+            events=types.SimpleNamespace(closing=[], loaded=[], maximized=[], restored=[]),
+            show=lambda: None),
+        start=fake_start)
+
+    class Ev(list):
+        def __iadd__(self, f):
+            return self
+
+    fake.create_window = lambda *a, **k: types.SimpleNamespace(
+        events=types.SimpleNamespace(closing=Ev(), loaded=Ev(), maximized=Ev(), restored=Ev()),
+        show=lambda: None)
+    monkeypatch.setitem(sys.modules, "webview", fake)
+    monkeypatch.setattr(desktop.DesktopApp, "check_device", lambda self: None)
+    desktop.serve(tmp_path, port=0, window=True)   # returns, no traceback
+    err = capsys.readouterr().err
+    assert "another motus window is still open" in err and "0x800700AA" in err
+
+    fake.start = lambda *a, **k: (_ for _ in ()).throw(OSError(-2147024726, "busy"))
+    desktop.serve(tmp_path, port=0, window=True)
+
+    fake.start = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("other"))
+    with pytest.raises(RuntimeError, match="other"):
+        desktop.serve(tmp_path, port=0, window=True)

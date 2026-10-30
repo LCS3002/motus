@@ -225,7 +225,7 @@ def stage_process(cfg: Config, run_dir: Path, log=print, raw: pd.DataFrame | Non
         try:
             build_package(cfg, run_dir, raster, video, log=log)
         except Exception as e:  # never lose a finished run over the presentation layer
-            log(f"images / labels failed: {e!r} (re-try with `groundtrack package`)")
+            log(f"images / labels failed: {e!r} (re-try with `motus package`)")
 
     _log_stats(stats, log)
     log(f"processing took {time.time() - t0:.1f} s. Outputs in {run_dir}")

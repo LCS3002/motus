@@ -1,8 +1,8 @@
 """Site config templates written by `groundtrack init`."""
 
 COMMON_HEAD = """\
-# groundtrack site config: {site}
-# Paths are relative to this file. Run `groundtrack calibrate --config {fname}` first.
+# motus site config: {site}
+# Paths are relative to this file. Run `motus calibrate --config {fname}` first.
 site: {site}
 video: ../footage/{site}.mp4
 geotiff: ../maps/{site}.tif              # north-up GeoTIFF in EPSG:27700 (QGIS / Digimap export)
@@ -23,7 +23,7 @@ detection:
   tracker: botsort          # bytetrack | botsort | path/to/custom.yaml
   track_buffer_s: 1.5       # people get occluded by each other for longer than cars
   vid_stride: 1
-  roi: null                 # run `groundtrack roi --config {fname}` to draw one
+  roi: null                 # run `motus roi --config {fname}` to draw one
   record_predicted: true
   suppress_riders: true
   stabilize: auto           # measures camera motion first; compensates only if it moved
@@ -44,7 +44,7 @@ projection:
   max_range_m: auto         # drop far people where 1 px of jitter > 0.25 m of depth
 
 cleaning:
-  min_track_s: 2.0
+  min_track_s: 0.0
   max_gap_s: 2.0
 
 grid:
@@ -102,7 +102,7 @@ projection:
   max_range_m: auto         # drop far vehicles where 1 px of jitter > 1 m of depth
 
 cleaning:
-  min_track_s: 1.0
+  min_track_s: 0.0
   max_gap_s: 1.5
 
 grid:

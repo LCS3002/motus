@@ -192,7 +192,7 @@ groups:
   people:
     classes: [person]
 cleaning:
-  min_track_s: 1.0
+  min_track_s: 0.0
 grid:
   cell_size_m: 1.0
 stats:

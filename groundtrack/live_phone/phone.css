@@ -1,0 +1,312 @@
+/* motus live, the phone page: direction A "drafting black" as in the app. Pure black,
+   hairlines, mono labels, square corners, large targets, landscape first. Violet only for
+   the controller (zero, the horizon, gain, the space clutch, the link to the hub); white for
+   the remote.
+   Orange is the lacuna's: never here.
+   The tokens are a copy of the ones this page needs from desktop_web/tokens.css (the one
+   source: change them there first). The fonts (Geist, Spline Sans Mono, SIL OFL, licences
+   in fonts/) are added by phone.js, since every file here is fetched with the pairing code. */
+:root {
+  color-scheme: dark;
+  --bg: #000;
+  --fg: #fff;
+  --fg-2: rgb(255 255 255 / 0.72);
+  --muted: rgb(255 255 255 / 0.5);
+  --faint: rgb(255 255 255 / 0.32);
+  --rule: color-mix(in srgb, currentColor 22%, transparent);
+  --rule-soft: color-mix(in srgb, currentColor 12%, transparent);
+  --line: rgb(255 255 255 / 0.22);
+  --tick: rgb(255 255 255 / 0.3);
+  --press: rgb(255 255 255 / 0.08);
+  --bad: #f0606f;
+  --violet: #4b2e83;
+  --violet-line: #9b82d9;
+  --violet-fill: rgb(75 46 131 / 0.22);
+  --font-sans: "Geist", -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Spline Sans Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --t-label: 500 10.5px/14px var(--font-mono);
+  --t-mono: 400 11px/16px var(--font-mono);
+  --t-body: 500 12px/16px var(--font-sans);
+  --tracking-label: 0.02em;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 140ms;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+  font: var(--t-body); -webkit-font-smoothing: antialiased;
+  overflow: hidden; overscroll-behavior: none; touch-action: manipulation;
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+body { position: fixed; inset: 0; }
+button, select, input { font: inherit; color: inherit; margin: 0; }
+[hidden] { display: none !important; }
+.label { font: var(--t-label); letter-spacing: var(--tracking-label); text-transform: uppercase; }
+.mono { font: var(--t-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.mark { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
+
+/* ---------- layout: zero under the left thumb, the remote under the right */
+.app {
+  position: fixed; inset: 0; display: grid;
+  grid-template-columns: minmax(150px, 21%) minmax(0, 1fr) minmax(190px, 25%);
+  grid-template-rows: 44px minmax(0, 1fr);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+           env(safe-area-inset-left);
+}
+.top {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; min-width: 0;
+  padding: 0 20px; border-bottom: 1px solid var(--rule);
+}
+.wm { display: flex; align-items: center; gap: 8px; flex: none; }
+.wm .mark { width: 16px; height: 16px; }
+.wm .word { font: 400 16px/1 var(--font-sans); letter-spacing: -0.03em; }
+.who { flex: none; color: var(--violet-line); white-space: nowrap; }     /* player N · spot */
+.status { display: flex; align-items: center; gap: 12px; margin-left: auto; min-width: 0; white-space: nowrap; overflow: hidden; }
+.status #conn { color: var(--fg-2); }
+.status .mono { color: var(--fg); }
+.dot { width: 5px; height: 5px; margin-right: -6px; border: 1px solid var(--muted); flex: none; }
+.dot.ok { background: var(--violet-line); border-color: var(--violet-line); }
+.dot.ok + #conn { color: var(--violet-line); }
+
+.cell { position: relative; display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; padding: 18px 20px; }
+.cell + .cell { border-left: 1px solid var(--rule); }
+.grow { flex: 1; }
+
+@media (orientation: portrait) {
+  .app { grid-template-columns: 1fr 1fr; grid-template-rows: 44px minmax(0, 1fr) minmax(0, 1fr); }
+  .mid { grid-column: 1 / -1; grid-row: 2; border-left: 0; border-bottom: 1px solid var(--rule); }
+  .left { grid-row: 3; }
+  .right { grid-row: 3; }
+}
+
+/* ---------- buttons: square, hairline, no fills but meaning */
+button {
+  -webkit-appearance: none; appearance: none; border: 1px solid var(--rule); border-radius: 0;
+  background: transparent; min-height: 44px; padding: 0 16px; cursor: pointer;
+  font: var(--t-label); letter-spacing: var(--tracking-label); text-transform: uppercase;
+  transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease);
+}
+button:active { background: var(--press); }
+
+/* zero: the controller, violet; a viewfinder, its horizon the camera's tilt and roll */
+.zero {
+  flex: 1; min-height: 0; display: grid; place-items: center; align-content: center; gap: 14px;
+  padding: 12px; color: var(--violet-line); border-color: var(--violet-line);
+  background: rgb(75 46 131 / 0.14); font-size: 13px;
+}
+.zero:active { background: var(--violet-fill); }
+.zero:disabled { opacity: .35; cursor: default; }     /* several spots, none of them this phone's */
+.zero.flash { animation: zero .5s var(--ease-out); }
+@keyframes zero { from { background: rgb(155 130 217 / 0.42); } }
+.horizon { width: 100%; max-width: 168px; height: auto; overflow: visible; display: block; }
+.horizon .frame { fill: none; stroke: rgb(155 130 217 / 0.4); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.horizon .line { stroke: var(--violet-line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.horizon .reticle { fill: none; stroke: var(--fg); stroke-width: 1; vector-effect: non-scaling-stroke; opacity: .8; }
+.tilt { color: var(--violet-line); white-space: pre; }
+.hint { margin: 0; color: var(--muted); font: var(--t-mono); }
+.note {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 2; margin: 0; padding: 7px 22px;
+  background: var(--bg); border-bottom: 1px solid var(--violet-line); color: var(--violet-line); font: var(--t-mono);
+}
+
+/* ---------- middle: gain over transport */
+.mid { padding: 0; gap: 0; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+.gain { display: grid; gap: 10px; align-content: center; padding: 14px 22px 12px; border-bottom: 1px solid var(--rule); min-height: 0; }
+.gain .head { display: flex; align-items: flex-end; justify-content: space-between; }
+.gainval {
+  border: 0; min-height: 0; padding: 0; color: var(--violet-line);
+  font: 400 34px/30px var(--font-sans); letter-spacing: -0.04em; text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+.gainval:active { background: transparent; color: var(--fg); }
+.gain:has(#gain:disabled) { opacity: .35; }           /* several spots, none of them this phone's */
+.gain #gain:disabled { opacity: 1; }
+.ruler { position: relative; padding-bottom: 16px; }
+.marks { position: absolute; left: 0; right: 0; bottom: 0; height: 16px; color: var(--muted); pointer-events: none; }
+.marks span { position: absolute; top: 2px; transform: translateX(-50%); left: calc(11px + var(--p) * (100% - 22px)); }
+.marks span::before {     /* the labelled values: longer ticks */
+  content: ""; position: absolute; left: 50%; top: -32px; height: 16px; border-left: 1px solid rgb(255 255 255 / 0.7);
+}
+.g01 { --p: 0; } .g025 { --p: .2694; } .g05 { --p: .4732; }     /* ln(g / 0.1) / ln 30 */
+.g1 { --p: .6770; } .g2 { --p: .8808; } .g3 { --p: 1; }
+
+.transport {
+  display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: auto auto;
+  column-gap: 18px; row-gap: 6px; align-content: center; align-items: center; padding: 14px 22px; min-height: 0;
+}
+.play {
+  grid-row: span 2; width: 72px; height: 72px; padding: 0; display: grid; place-items: center;
+  align-content: center; gap: 8px; background: var(--fg); color: var(--bg); border-color: var(--fg);
+}
+.play:active { background: var(--fg-2); }
+.play::before {           /* play: a triangle; playing (.on): two bars */
+  content: ""; width: 0; height: 0; border-style: solid; border-width: 9px 0 9px 15px;
+  border-color: transparent transparent transparent currentColor;
+}
+.play.on::before {
+  width: 12px; height: 18px; border: 0;
+  background: linear-gradient(90deg, currentColor 0 2px, transparent 2px 10px, currentColor 10px);
+}
+.times { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.now { font: 400 26px/26px var(--font-sans); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.dur { color: var(--muted); }
+.dur::before { content: "/ "; }
+
+/* ---------- sliders: a tick ruler, the thumb a pick box on a line */
+input[type=range] {          /* the thumb's centre runs 11 px in from each end: so do the ticks */
+  -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 44px;
+  background: transparent; --c: var(--fg);
+}
+.gain input[type=range] { --c: var(--violet-line); }
+input[type=range]::-webkit-slider-runnable-track {
+  height: 44px; border: 0;
+  background: linear-gradient(var(--line), var(--line)) 11px 30px / calc(100% - 22px) 1px no-repeat,
+              repeating-linear-gradient(90deg, var(--tick) 0 1px, transparent 1px 9px) 11px 20px / calc(100% - 21px) 10px no-repeat;
+}
+input[type=range]::-moz-range-track {
+  height: 44px; border: 0;
+  background: linear-gradient(var(--line), var(--line)) 11px 30px / calc(100% - 22px) 1px no-repeat,
+              repeating-linear-gradient(90deg, var(--tick) 0 1px, transparent 1px 9px) 11px 20px / calc(100% - 21px) 10px no-repeat;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 22px; height: 44px; border: 0; border-radius: 0;
+  background: linear-gradient(var(--c), var(--c)) 50% 0 / 1px 10px no-repeat,
+              linear-gradient(var(--c), var(--c)) 0 10px / 100% 1px no-repeat,
+              linear-gradient(var(--c), var(--c)) 0 31px / 100% 1px no-repeat,
+              linear-gradient(var(--c), var(--c)) 0 10px / 1px 22px no-repeat,
+              linear-gradient(var(--c), var(--c)) 100% 10px / 1px 22px no-repeat,
+              linear-gradient(var(--bg), var(--bg)) 0 10px / 100% 22px no-repeat;
+}
+input[type=range]::-moz-range-thumb {
+  width: 22px; height: 44px; border: 0; border-radius: 0;
+  background: linear-gradient(var(--c), var(--c)) 50% 0 / 1px 10px no-repeat,
+              linear-gradient(var(--c), var(--c)) 0 10px / 100% 1px no-repeat,
+              linear-gradient(var(--c), var(--c)) 0 31px / 100% 1px no-repeat,
+              linear-gradient(var(--c), var(--c)) 0 10px / 1px 22px no-repeat,
+              linear-gradient(var(--c), var(--c)) 100% 10px / 1px 22px no-repeat,
+              linear-gradient(var(--bg), var(--bg)) 0 10px / 100% 22px no-repeat;
+}
+input[type=range]:disabled { opacity: .35; }
+
+/* ---------- right: camera, section, space (the laptop chooses the clip / site; every pass
+   records by itself) */
+.clip { position: relative; display: grid; gap: 8px; }
+.clip::after {           /* the chevron (the CSP allows no data: images) */
+  content: ""; position: absolute; right: 6px; bottom: 19px; width: 6px; height: 6px; pointer-events: none;
+  border-right: 1px solid var(--muted); border-bottom: 1px solid var(--muted); transform: rotate(45deg);
+}
+.clip select {
+  -webkit-appearance: none; appearance: none; width: 100%; min-height: 44px; border-radius: 0;
+  padding: 0 30px 0 0; border: 0; border-bottom: 1px solid var(--rule); background-color: transparent;
+  font: 400 15px/1 var(--font-sans); letter-spacing: -0.01em; text-overflow: ellipsis;
+}
+.clip select:disabled { opacity: .45; }
+
+/* the camera of a large site: the field shows it, a tap opens the picker (an area, then a camera) */
+.cam {
+  position: relative; flex: none; display: grid; gap: 8px; min-height: 0; padding: 0; border: 0;
+  text-align: left; text-transform: none; letter-spacing: normal; background: transparent;
+}
+.cam:active { background: transparent; }
+.cam .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.camarea:not(:empty)::before { content: "· "; }
+.camval {
+  display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 44px;
+  padding-right: 18px; border-bottom: 1px solid var(--rule);
+}
+.camname {
+  flex: 1; min-width: 0; font: 400 15px/1 var(--font-sans); letter-spacing: -0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cam.none .camname { color: var(--violet-line); }
+.camgo { color: var(--muted); }
+.cam::after {             /* a chevron to the right: it opens the picker */
+  content: ""; position: absolute; right: 5px; bottom: 19px; width: 6px; height: 6px; pointer-events: none;
+  border-right: 1px solid var(--muted); border-bottom: 1px solid var(--muted); transform: rotate(-45deg);
+}
+.cam:active .camval { border-bottom-color: var(--fg); }
+.tbtn { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 16px; text-align: left; }
+.tbtn::after { content: "Off"; margin-left: auto; color: var(--muted); }
+.tbtn.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.tbtn.on::after { content: "On"; color: rgb(0 0 0 / 0.6); }
+.tbtn.on:active { background: var(--fg-2); }
+.section::before { content: ""; width: 11px; height: 15px; flex: none; margin: 0 1px; border: 1px solid currentColor; transform: skewX(-24deg); }
+
+/* space: the clutch, a controller key. Hold it and the whole space turns with the phone:
+   violet while held, a violet outline while the space stays turned, white hairline when level */
+.space {
+  flex: 1; min-height: 96px; display: grid; grid-template-columns: auto minmax(0, 1fr);
+  align-content: center; align-items: center; column-gap: 14px; row-gap: 6px; padding: 12px 16px;
+  text-align: left; touch-action: none; -webkit-touch-callout: none;
+}
+.space .plane { grid-row: span 2; width: 44px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.space .label { font-size: 13px; }
+.spacest { color: var(--muted); text-transform: none; }     /* wraps: "turned · double-tap: level" is read */
+.space.turned { color: var(--violet-line); border-color: var(--violet-line); background: rgb(75 46 131 / 0.14); }
+.space.turned .spacest { color: var(--violet-line); }
+.space.held, .space.held:active { color: var(--fg); border-color: var(--violet-line); background: var(--violet); }
+.space.held .spacest { color: var(--fg-2); }
+.space.flash { animation: zero .5s var(--ease-out); }
+.space.off, .space.off:active { opacity: .35; background: transparent; cursor: default; }
+
+/* ---------- the camera picker: a sheet over the page. Areas first, then the cameras of one;
+   a taken camera is greyed, this phone's own is violet */
+.picker {
+  position: fixed; inset: 0; z-index: 8; background: var(--bg);
+  display: grid; grid-template-rows: 44px minmax(0, 1fr);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+           env(safe-area-inset-left);
+}
+.phead { display: flex; align-items: center; gap: 18px; min-width: 0; padding: 0 20px; border-bottom: 1px solid var(--rule); }
+.ptitle { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptext { border: 0; min-height: 44px; padding: 0 2px; color: var(--fg-2); }
+.ptext:active { background: transparent; color: var(--fg); }
+.pback::before {          /* back to the areas */
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 9px; vertical-align: 1px;
+  border-left: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg);
+}
+.plist {
+  overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 18px 20px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; align-content: start;
+}
+.pitem {
+  min-height: 64px; display: grid; align-content: center; gap: 7px; padding: 10px 14px;
+  text-align: left; text-transform: none; letter-spacing: normal;
+}
+.pname { font: 400 16px/1.1 var(--font-sans); letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pmeta { font: var(--t-label); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--muted); }
+.pitem:disabled { opacity: .35; cursor: default; }
+.pitem.full { opacity: .5; }
+.pitem.mine { color: var(--violet-line); border-color: var(--violet-line); background: rgb(75 46 131 / 0.14); }
+.pitem.mine .pmeta { color: var(--violet-line); }
+
+/* ---------- overlays */
+.turn {
+  position: fixed; left: 50%; top: max(52px, env(safe-area-inset-top)); transform: translateX(-50%); z-index: 5;
+  padding: 10px 16px; max-width: 92vw; text-align: center;
+  background: var(--bg); border: 1px solid var(--violet-line); color: var(--violet-line);
+}
+.start {
+  position: fixed; inset: 0; z-index: 10; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding: max(16px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+           max(16px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  text-align: center;
+}
+.start-wm { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.start-wm .mark { width: 30px; height: 30px; stroke-width: 1.6; }
+.start h1 { margin: 0; font: 400 40px/1 var(--font-sans); letter-spacing: -0.045em; }
+.start-wm .label { align-self: flex-end; margin-bottom: 4px; }
+.start p { margin: 0; max-width: 34em; color: var(--muted); font: 400 13px/19px var(--font-sans); }
+.go {
+  min-width: 220px; min-height: 56px; margin-top: 4px; font-size: 13px;
+  color: var(--violet-line); border-color: var(--violet-line); background: rgb(75 46 131 / 0.14);
+}
+.go:active { background: var(--violet-fill); }
+.start .msg { color: var(--violet-line); min-height: 1.4em; font: var(--t-mono); }
+.start .small { font: var(--t-mono); }

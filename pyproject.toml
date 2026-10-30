@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "groundtrack"
 version = "0.1.0"
-description = "Oblique video -> top-down movement data (EPSG:27700) for architecture research"
+description = "motus: oblique video -> top-down movement data (EPSG:27700) for architecture research"
 requires-python = ">=3.10"
 license = {text = "AGPL-3.0-or-later"}
 readme = "README.md"
@@ -25,16 +25,20 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "pyogrio>=0.7", "ruff"]
-app = ["pywebview>=5"]          # `groundtrack app`: the desktop window (else it opens in the browser)
+app = ["pywebview>=5"]          # `motus app`: the desktop window (else it opens in the browser)
+live = ["websockets>=14", "cryptography>=42", "qrcode>=7.4"]   # Live mode: the phone controller's hub
 
 [project.scripts]
-groundtrack = "groundtrack.cli:main"
+motus = "groundtrack.cli:main"
+groundtrack = "groundtrack.cli:main"      # the old name, still works
 
 [tool.setuptools]
 packages = ["groundtrack"]
 
 [tool.setuptools.package-data]
-groundtrack = ["ui.html", "desktop_web/*.*", "desktop_web/fonts/*"]
+groundtrack = ["ui.html", "desktop_web/*.*", "desktop_web/fonts/*", "desktop_web/live/*",
+               "desktop_web/vendor/three/*", "desktop_web/vendor/three/addons/controls/*",
+               "desktop_web/vendor/three/addons/lines/*", "live_phone/*", "live_phone/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

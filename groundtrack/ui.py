@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import mimetypes
 import os
 import re
@@ -518,6 +519,17 @@ class App:
         return self._thumbs[key]
 
 
+def _finite(obj):
+    """obj with every Infinity / NaN as None (e.g. the RMSE of an exact 5-pair homography)."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _finite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_finite(v) for v in obj]
+    return obj
+
+
 def _load(path: Path):
     from .config import load_config
 
@@ -551,8 +563,11 @@ def make_handler(app: App, port: int):
                 self.wfile.write(body)
 
         def _json(self, obj, code=200):
-            self._send(code, json.dumps(obj, default=str).encode("utf-8"),
-                       "application/json; charset=utf-8")
+            try:
+                body = json.dumps(obj, default=str, allow_nan=False)
+            except ValueError:          # Infinity / NaN are not JSON for the browser: null
+                body = json.dumps(_finite(obj), default=str)
+            self._send(code, body.encode("utf-8"), "application/json; charset=utf-8")
 
         def _guard(self) -> bool:
             # only this machine, only this page: stops other websites from driving the UI
@@ -689,7 +704,7 @@ def serve(root: Path, port: int = 8765, open_browser: bool = True) -> None:
     app = App(root)
     srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app, port))
     url = f"http://127.0.0.1:{port}/"
-    print(f"groundtrack UI on {url}  (project {app.root}; Ctrl+C to stop)")
+    print(f"motus UI on {url}  (project {app.root}; Ctrl+C to stop)")
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

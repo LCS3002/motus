@@ -35,7 +35,7 @@ groups:
     smooth_window_s: 0.8
 
 cleaning:
-  min_track_s: 2.0
+  min_track_s: 0.0
   max_gap_s: 2.0
 
 grid:

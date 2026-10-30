@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>motus · Live</title>
+  <link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/SplineSansMono-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/live/live.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='.5' y='.5' width='31' height='31' rx='7' fill='%230b0b0d' stroke='%233a3a40'/><g transform='translate(4 4) scale(.75)' fill='none' stroke='%23ededed' stroke-width='3' stroke-linecap='round'><circle cx='16' cy='19' r='8'/><path d='M3 6.5h26'/></g></svg>">
+  <script type="importmap">
+    { "imports": { "three": "/static/vendor/three/three.module.min.js",
+                   "three/addons/": "/static/vendor/three/addons/" } }
+  </script>
+</head>
+<body>
+<div class="winctl" id="winctl" hidden>
+  <button data-win="min" aria-label="Minimise" title="Minimise"><svg viewBox="0 0 12 12"><path d="M1.5 6h9" stroke="currentColor" stroke-width="1"/></svg></button>
+  <button data-win="max" aria-label="Maximise" title="Maximise"><svg class="i-max" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg><svg class="i-restore" viewBox="0 0 12 12"><rect x="1.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/><path d="M3.5 1.5h7v7" fill="none" stroke="currentColor" stroke-width="1"/></svg></button>
+  <button data-win="close" class="close" aria-label="Close" title="Close"><svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2 2 10" stroke="currentColor" stroke-width="1"/></svg></button>
+</div>
+<div class="edge top" data-edge="top" hidden></div><div class="edge tl" data-edge="topleft" hidden></div><div class="edge tr" data-edge="topright" hidden></div>
+
+<div class="stage" id="stage"><canvas id="gl"></canvas><div class="labels" id="labels"><span>x</span><span>y</span><span>z</span></div></div>
+<div class="players" id="players" aria-label="The players' views"></div>
+
+<header class="bar" id="bar">
+  <button class="btn sm back" id="back" title="Back to the run">← Run</button>
+  <svg class="logo" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="16" cy="19" r="8"/><path d="M3 6.5h26"/></svg>
+  <span class="clip" id="clip-name">Live</span>
+  <span class="sub" id="clip-sub"></span>
+  <div class="grow"></div>
+  <div class="seg" id="views" role="tablist" aria-label="Views">
+    <button data-view="1" title="Plan (1)">1 Plan</button>
+    <button data-view="2" title="Axonometric (2)">2 Axo</button>
+    <button data-view="3" title="From the start camera (3)">3 Start</button>
+    <button data-view="4" title="From the virtual camera (4)">4 Virtual</button>
+  </div>
+  <button class="icon-btn" id="fs-btn" title="Full screen (F)" aria-label="Full screen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
+  <button class="icon-btn" id="panel-btn" title="Panel (P)" aria-label="Panel" aria-pressed="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><rect x="2.5" y="2.5" width="11" height="11"/><path d="M10 2.5v11"/></svg></button>
+</header>
+
+<section class="hud" id="hud" aria-label="Status">
+  <div class="hud-clip" id="h-clip"></div>
+  <dl>
+    <dt>Camera</dt><dd id="h-spot"></dd>
+    <dt>Time</dt><dd id="h-time" class="num"></dd>
+    <dt>Pan</dt><dd id="h-pan" class="num"></dd>
+    <dt>Tilt</dt><dd id="h-tilt" class="num"></dd>
+    <dt>Roll</dt><dd id="h-roll" class="num"></dd>
+    <dt>Pos</dt><dd id="h-pos" class="num"></dd>
+    <dt>Gain</dt><dd id="h-gain" class="num"></dd>
+    <dt>Scale</dt><dd id="h-scale" class="num"></dd>
+    <dt>Space</dt><dd id="h-space" class="num"></dd>
+    <dt>Source</dt><dd id="h-src"></dd>
+    <dt>Drawn</dt><dd id="h-drawn" class="num"></dd>
+    <dt>Fps</dt><dd id="h-fps" class="num"></dd>
+  </dl>
+  <div class="hud-note" id="h-note"></div>
+</section>
+
+<aside class="panel" id="panel" aria-label="Live controls">
+  <div class="part" id="part-cameras">
+  <h2 class="part-h label">Cameras <span class="key">Tab</span></h2>
+  <section id="spots">
+    <div class="spot-list" id="spot-list"></div>
+    <p class="hint" id="spot-sum"></p>
+    <div class="row"><button class="btn sm" id="whole-scene" title="The view flies back out to frame every camera of the collage, in the plan or the perspective (W; Solo off)">Whole scene <span class="key">W</span></button></div>
+    <p class="hint">Click: the marked camera (the mouse and the keys act on it; one no phone holds is the mouse's) · Shift+click: focus · ⋯ its menu. A phone takes a camera from its picker; a camera stays until it is removed.</p>
+  </section>
+  <section class="cmenu" id="cam-menu" hidden aria-label="Camera">
+    <div class="row"><h3 class="label" id="cm-name"></h3><div class="grow"></div>
+      <button class="btn sm" id="cm-close" title="Close (Esc)">Close</button></div>
+    <div class="opts cm-do">
+      <button id="cm-focus" title="The view flies to this camera and its traces, in the plan or the perspective; the others stay / the whole scene again (O, or Shift+click it; W)">Focus <span class="key">O</span></button>
+      <button id="cm-solo" title="This camera alone in the main view / all again (I)">Solo <span class="key">I</span></button>
+      <button id="cm-video" title="Its video box (its phone's view, in the column on the right) open / closed; B: the boxes of every camera in play">Video <span class="key">B</span></button>
+    </div>
+    <div class="opts cm-do">
+      <button id="cm-clear" title="Its layer off the view (X: the marked camera) · Undo brings it back">Clear layer <span class="key">X</span></button>
+      <button id="cm-remove" title="Out of the scene with its layer; a phone holding it picks again · Undo brings it back">Remove</button>
+    </div>
+    <div class="opts cm-do">
+      <button id="cm-sheet" title="This camera's sheet: its layer on top, the score of the plays that made it below (light, PDF + PNG, in live/sheets/)">Sheet</button>
+      <button id="cm-exports" title="This camera's layer to Rhino, Houdini and GeoJSON in one go (in live/exports/; the play being drawn is saved first)">Exports</button>
+    </div>
+    <label class="check" title="Its movement from the phone eased: calm, no jitter, about 0.1 s behind (J: the marked camera). Off: it follows the phone exactly. Recorded with the pass"><input type="checkbox" id="cm-smooth"> Smooth <span class="key">J</span></label>
+    <div class="cm-mouse" id="cm-mouse">
+    <div class="row"><button class="btn sm" id="zero" title="The current pose becomes the start camera (Z)">Zero <span class="key">Z</span></button></div>
+    <label class="slider"><span class="label">Gain <span class="key">G</span></span><input type="range" id="gain" min="0.1" max="3" step="0.05" value="1"><output id="gain-v" class="num">1.00×</output></label>
+    <label class="slider"><span class="label">Scale</span><input type="range" id="scale" min="0" max="5" step="1" value="0"><output id="scale-v" class="num">1 m = 1 m</output></label>
+    <p class="hint">Mouse: right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move · hold M: turn the space · M M: level</p>
+    </div>
+    <p class="hint" id="cm-phone" hidden></p>
+  </section>
+  <section class="phone" id="phone">
+    <h3 class="label">Phone</h3>
+    <div class="qr" id="qr"></div>
+    <div class="phone-url mono" id="phone-url"></div>
+    <div class="row"><span class="phones label" id="phones">Starting…</span><div class="grow"></div>
+      <button class="btn sm" id="new-code" title="A new pairing code: phones must scan again">New code</button></div>
+    <p class="hint" id="phone-note"></p>
+  </section>
+  </div>
+  <div class="part" id="part-scene">
+  <h2 class="part-h label">Scene</h2>
+  <section id="sites" hidden>
+    <h3 class="label">Site</h3>
+    <div class="opts" id="site-list" title="Only the laptop switches the site: the pass is saved, the phones pick again"></div>
+  </section>
+  <section id="passes">
+    <h3 class="label">Passes</h3>
+    <div class="row"><button class="btn sm" id="pass-undo" title="The last change taken back: a play, a Load, a camera cleared (the files stay)">Undo</button>
+      <button class="btn sm" id="pass-clear" title="Every layer off the view (the files stay)">Clear all</button><div class="grow"></div>
+      <span class="label pass-n" id="pass-n"></span></div>
+    <label class="check" title="K: a play adds to its cameras' layers. Off: a play replaces its cameras' layers (every play is saved either way)"><input type="checkbox" id="pass-stack"> Stack passes <span class="key">K</span></label>
+    <button class="btn sm" id="pass-menu-btn" aria-pressed="false" aria-controls="pass-menu" title="The saved passes: load, replay, video, sheet, exports, delete (L)">Saved passes <span class="key">L</span></button>
+    <p class="hint">Each camera is a layer on the site. A play (the clock from 0 to the end of the longest clip in play) redraws only the cameras in play; the others keep theirs. Each play is saved as a pass; Undo and Clear only change the view.</p>
+  </section>
+  <section id="scene-out">
+    <h3 class="label">Sheet and exports</h3>
+    <div class="row"><button class="btn sm" id="collage-sheet" title="The whole collage's sheet: all layers on top, the score of the plays that made them below (light, PDF + PNG, in live/sheets/); a pass's own sheet and exports: Saved passes (L)">Collage sheet</button>
+      <button class="btn sm" id="collage-export" title="Every layer together to Rhino, Houdini and GeoJSON in one go (in live/exports/; the play being drawn is saved first); a pass's own exports: Saved passes (L)">Export collage</button></div>
+  </section>
+  <section>
+    <h3 class="label">Trails</h3>
+    <div class="opts" data-group="trails">
+      <button data-v="performed" title="What was drawn while you moved">Performed</button>
+      <button data-v="whole" title="Every point of the clip, redrawn with the current pose">Whole clip</button>
+    </div>
+  </section>
+  <section>
+    <h3 class="label">Ground</h3>
+    <div class="opts" data-group="ground">
+      <button data-v="A" title="The grey aerial at ~30 %">A Aerial</button>
+      <button data-v="B" title="Dark contours every 1 m">B Contours</button>
+      <button data-v="C" title="A faint grid">C Grid</button>
+    </div>
+  </section>
+  <section>
+    <h3 class="label">Below the ground <span class="key">U</span></h3>
+    <div class="opts" data-group="under">
+      <button data-v="veil" title="The ground opaque, the crowd behind it seen faintly through it">Veil</button>
+      <button data-v="same" title="The crowd below the ground drawn as above">Same</button>
+    </div>
+  </section>
+  <section>
+    <h3 class="label">Show</h3>
+    <label class="check" title="The machine at rest: Live with the phone untouched (not the truth)"><input type="checkbox" data-layer="ref"> Reference</label>
+    <label class="check" title="C: the gaps Live caused violet dashes, the footage's white; solid lines dimmed"><input type="checkbox" data-layer="cause"> Cause</label>
+    <label class="check"><input type="checkbox" data-layer="drag"> Drag grid</label>
+    <label class="check" title="V: re-framed (the recording stays put, the violet frame moves over it) / glued / off"><input type="checkbox" data-layer="video" checked> Video plane</label>
+    <label class="check"><input type="checkbox" data-layer="cameras" checked> Cameras</label>
+  </section>
+  <section>
+    <h3 class="label">Look</h3>
+    <div class="opts" data-group="look">
+      <button data-v="laptop">Laptop</button>
+      <button data-v="projector" title="Thicker, brighter lines, a lifted ground">Projector</button>
+    </div>
+  </section>
+  <section>
+    <h3 class="label">Section <span class="key">S</span></h3>
+    <label class="check"><input type="checkbox" id="sec-on"> Cut</label>
+    <div class="opts" data-group="section">
+      <button data-v="along" title="Vertical, along the start view">Along</button>
+      <button data-v="across" title="Vertical, across the start view">Across</button>
+      <button data-v="horizontal" title="Horizontal at height h">Level</button>
+    </div>
+    <label class="slider"><span class="label">Height</span><input type="range" id="sec-h" min="-3" max="12" step="0.1" value="1"><output id="sec-h-v" class="num">1.0 m</output></label>
+    <label class="check"><input type="checkbox" id="sec-slab"> Slab</label>
+    <label class="slider"><span class="label">Thick</span><input type="range" id="sec-t" min="0.5" max="40" step="0.5" value="6"><output id="sec-t-v" class="num">6.0 m</output></label>
+    <div class="row"><div class="opts" data-group="secmode"><button data-v="translate">Move</button><button data-v="rotate">Turn</button></div>
+      <button class="btn sm" id="sec-flip" title="Keep the other side">Flip</button></div>
+  </section>
+  <section id="help">
+    <h3 class="label">Help</h3>
+    <p class="hint">Space play · ← → a frame (Shift: 10) · Tab the next camera · O focus · W whole scene · I solo · B video boxes · X clear its layer · Z zero · G / Shift+G gain · J smooth · M hold: turn the space (M M: level) · K stack · L saved passes · S section · C cause · U below the ground · V video · 1–4 views · H HUD · P panel · F full screen</p>
+    <p class="hint">Mouse: right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move</p>
+  </section>
+  </div>
+</aside>
+
+<section class="pmenu" id="pass-menu" hidden tabindex="-1" aria-label="Saved passes">
+  <div class="row"><h3 class="label">Saved passes <span class="key">L</span></h3><div class="grow"></div>
+    <button class="btn sm" id="pass-menu-close" title="Close (L, Esc)">Close</button></div>
+  <div class="pass-list" id="pass-list"></div>
+</section>
+
+<footer class="timeline" id="timeline"></footer>
+<video id="video" muted playsinline preload="auto"></video>
+<div class="loading" id="loading"><span class="label">Loading</span><span class="mono" id="loading-what"></span></div>
+
+<script type="module" src="/static/live/live.js"></script>
+</body>
+</html>

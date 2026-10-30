@@ -58,7 +58,7 @@ def cmd_init(args):
     for d in ("footage", "maps", "calibration", "runs"):
         (out.parent.parent / d).mkdir(exist_ok=True)
     print(f"wrote {out}. Put the video in footage/ and the GeoTIFF in maps/, then run:\n"
-          f"  groundtrack calibrate --config {out.as_posix()}")
+          f"  motus calibrate --config {out.as_posix()}")
 
 
 def cmd_demo(args):
@@ -217,7 +217,7 @@ def cmd_track(args):
     if cfg.get("homography") and cfg.path("homography").exists():
         load_calibration(cfg, cfg.path("video"))
     stage_track(cfg, run_dir, _device(cfg, log), log=log, max_frames=args.max_frames)
-    log(f"next: groundtrack process --config {args.config} --run {run_dir}")
+    log(f"next: motus process --config {args.config} --run {run_dir}")
 
 
 def cmd_process(args):
@@ -255,7 +255,7 @@ def cmd_stabilize(args):
                         run.registration, extra, focal_px=cam.get("focal_px"))
     meta.update(info)
     run.meta.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    print(f"registration -> {run.registration}; now: groundtrack process -c {args.config} "
+    print(f"registration -> {run.registration}; now: motus process -c {args.config} "
           f"--run {run.root}")
 
 
@@ -309,6 +309,28 @@ def cmd_houdini_pop(args):
                       Path(args.out))
     if not args.no_build:
         build_scene(kit)
+
+
+def cmd_live_pass_export(args):
+    """<run>/live/passes/<id>/pass_<id>/: a saved Live pass as a run (live_pass_export.py)."""
+    from .live_pass_export import export_pass
+
+    export_pass(args.run, args.id, rhino=args.rhino, houdini=args.houdini, build=not args.no_build)
+
+
+def cmd_live_layers_export(args):
+    """<run>/live/exports/<stamp>-<collage | camera id>/: the Live collage's layers as a run."""
+    from .live_pass_export import export_layers
+
+    export_layers(args.dir, rhino=args.rhino, houdini=args.houdini, build=not args.no_build)
+
+
+def cmd_live_sheet(args):
+    """<run>/live/passes/<id>/sheet_<theme>.pdf / .png: the pass's performance sheet (live_sheet.py)."""
+    from .live_sheet import make_sheet
+
+    themes = ("black", "light") if args.theme == "both" else (args.theme,)
+    make_sheet(args.run, args.id, layout=args.layout, themes=themes, view=not args.no_view)
 
 
 def cmd_package(args):
@@ -409,6 +431,21 @@ def cmd_debug_video(args):
                        run_dir=run.root, clean_path=clean)
 
 
+def cmd_live_export(args):
+    """live/: the scene package of a processed run for the Live view (see live_export.py)."""
+    from .config import load_config
+    from .live_export import export_live, find_site_config
+
+    run_dir = Path(args.run_dir)
+    config = Path(args.config) if args.config else find_site_config(run_dir)
+    if config is None:
+        raise SystemExit(f"no sites/{run_dir.resolve().parent.name}.yaml for {run_dir}: "
+                         "pass --config")
+    res = export_live(run_dir, load_config(config), device=args.device)
+    print(f"{res['n_points']} points, {res['n_tracks']} tracks, {res['frames']} frames; "
+          f"reprojection median {res['reproj_median_px']:.2f} px -> {res['dir']}")
+
+
 def cmd_groundtruth(args):
     import json
 
@@ -447,9 +484,31 @@ def cmd_groundtruth(args):
         f"plot:   {run.extras / 'groundtruth.png'}")
 
 
+def cmd_live_hub(args):
+    """The phone controller's hub on its own (Live mode in the app starts its own)."""
+    from .live_hub import LiveHub, qr_text
+
+    hub = LiveHub(port=args.port, view_port=args.view_port, host=args.host)
+    if args.new_code:
+        hub.rotate_token()
+    info = hub.start()
+    for a in info["phone_urls"]:
+        print(f"phone: {a['url']}" + (f"  ({a['name']})" if a["name"] else ""))
+    if not info["phone_urls"]:
+        print("no network address found: is Wi-Fi / the hotspot on?")
+    print(f"view:  {info['view_url']}\ncertificate SHA-256: {info['fingerprint']}")
+    if info["url"]:
+        try:
+            print(qr_text(info["url"]))
+        except UnicodeEncodeError:
+            pass
+    print("Ctrl+C to stop")
+    hub.wait()
+
+
 # --------------------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="groundtrack",
+    p = argparse.ArgumentParser(prog="motus",
                                 description="Oblique video -> top-down movement data (EPSG:27700)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -569,6 +628,38 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-build", action="store_true", help="only the files, no .hip")
     s.set_defaults(func=cmd_houdini_pop)
 
+    s = sub.add_parser("live-pass-export", help="a saved Live pass as a run: points, GeoJSON, "
+                                                "camera path, Houdini curves + field; Rhino, POP kit")
+    s.add_argument("run", help="the run the pass was saved under (runs/<site>/<run>)")
+    s.add_argument("id", help="the pass id, e.g. 20261029-101500")
+    s.add_argument("--rhino", action="store_true", help="also the Rhino model (.3dm + Grasshopper)")
+    s.add_argument("--houdini", action="store_true", help="also the Houdini POP kit")
+    s.add_argument("--no-build", action="store_true", help="the POP kit's files only, no .hip")
+    s.set_defaults(func=cmd_live_pass_export)
+
+    s = sub.add_parser("live-layers-export", help="the Live collage's layers (all, or one camera's) as a run: "
+                                                  "points, GeoJSON, camera path, Houdini curves + field; "
+                                                  "Rhino, POP kit")
+    s.add_argument("dir", help="the export folder the app prepared (<run>/live/exports/<stamp>-<name>/, "
+                               "with layers.json and layers/)")
+    s.add_argument("--rhino", action="store_true", help="also the Rhino model (.3dm + Grasshopper)")
+    s.add_argument("--houdini", action="store_true", help="also the Houdini POP kit")
+    s.add_argument("--no-build", action="store_true", help="the POP kit's files only, no .hip")
+    s.set_defaults(func=cmd_live_layers_export)
+
+    s = sub.add_parser("live-sheet", help="a saved Live pass's performance sheet: the finished drawing "
+                                          "(the Live view, plans, sections) over the score of how it was "
+                                          "played; PDF + PNG, black and light, in the pass's folder")
+    s.add_argument("run", help="the run the pass was saved under (runs/<site>/<run>)")
+    s.add_argument("id", help="the pass id, e.g. 20261029-101500")
+    s.add_argument("--layout", default="C", choices=["A", "B", "C"],
+                   help="the top half: A view | plan | 2 sections, B view | the drawing at 1/3, 2/3 and the "
+                        "end, C a wider view | plan over a section (default C)")
+    s.add_argument("--theme", default="light", choices=["both", "black", "light"])
+    s.add_argument("--no-view", action="store_true",
+                   help="no browser: the view rendered before (sheet_view.png), if any")
+    s.set_defaults(func=cmd_live_sheet)
+
     s = common(sub.add_parser("package", help="frameless images + labels/metrics for a run"))
     s.add_argument("--run", default="latest", help="run folder, run name, or 'latest'")
     s.add_argument("--no-plate", action="store_true", help="skip the complete plate")
@@ -608,6 +699,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("kit", help="kit folder (modules.json + hou_pop_build.py)")
     s.set_defaults(func=cmd_houdini_build)
 
+    s = common(sub.add_parser("live-export", help="scene package of a processed run for the "
+                                                  "Live view (<run>/live/)"), False)
+    s.add_argument("run_dir", help="run folder (with data/points.csv)")
+    s.add_argument("--config", "-c", help="site YAML (default: sites/<site>.yaml of the run)")
+    s.set_defaults(func=cmd_live_export)
+
     s = common(sub.add_parser("debug-video", help="render debug.mp4 for an existing run"))
     s.add_argument("--run", default="latest")
     s.add_argument("--no-blur", action="store_true", help="do NOT blur people (careful)")
@@ -627,6 +724,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--track-id", type=int, help="default: the longest person track")
     s.add_argument("--run-name")
     s.set_defaults(func=cmd_groundtruth)
+
+    s = sub.add_parser("live-hub", help="the phone controller's hub on its own "
+                                        "(Live mode in the app starts it)")
+    s.add_argument("--port", type=int, default=8766, help="phone page and socket (HTTPS, LAN)")
+    s.add_argument("--view-port", type=int, default=8767,
+                   help="the Live view's socket (this machine only)")
+    s.add_argument("--host", default="0.0.0.0",
+                   help="interface for the phone (default: all; 127.0.0.1 = this machine only)")
+    s.add_argument("--new-code", action="store_true",
+                   help="make a new pairing code (phones scan the QR code again)")
+    s.set_defaults(func=cmd_live_hub)
     return p
 
 

@@ -1281,18 +1281,18 @@ def run_autocalibration(cfg, log=print, run_dir: Path | None = None, device: str
     # 2. vehicles on roads -------------------------------------------------------------
     if h is None:
         if not prior:
-            report["reason"] = ('needs the camera position first: groundtrack locate '
+            report["reason"] = ('needs the camera position first: motus locate '
                                 '"<building>" --floor N -c <site>.yaml --write')
         elif terrain is not None and n_veh < 100:
             # the walking-people fit puts everyone on one flat ground
             report["reason"] = ("with a terrain model the walking-people fit (one flat ground) "
                                 "is not used, and there is too little traffic for the road "
-                                "fit: pick 4+ points (groundtrack calibrate), on any level")
+                                "fit: pick 4+ points (motus calibrate), on any level")
         elif n_veh < 100 and n_ppl >= 300 and float(prior["height_m"]) < 2.5:
             # tested: from eye height everyone's head sits on the horizon, which says almost
             # nothing about the tilt; the people cues then made the fit worse on one of two clips
             report["reason"] = ("camera at eye height: the walking people can't fix the tilt "
-                                "from down there. Pick 5+ well-spread points (groundtrack "
+                                "from down there. Pick 5+ well-spread points (motus "
                                 "calibrate), or film from a raised spot (steps, a wall, a "
                                 "first-floor window) next time")
         elif n_veh < 100 and n_ppl >= 300:
@@ -1318,12 +1318,12 @@ def run_autocalibration(cfg, log=print, run_dir: Path | None = None, device: str
                     f"the walking people give tilt {c['tilt_deg']:.1f}°, field of view "
                     f"{c['hfov_deg']:.0f}° and camera height {c['height_m']:.1f} m, but on an "
                     "open plaza nothing in the footage fixes the direction: click 2 points "
-                    "(groundtrack calibrate, then Enter twice) and run autocalibrate again")
+                    "(motus calibrate, then Enter twice) and run autocalibrate again")
             else:
                 report["reason"] = info.get("reason", "not enough people")
         elif n_veh < 100:
             report["reason"] = ("not enough moving vehicles or walking people in the tracks: "
-                                "pick 3-4 points (groundtrack calibrate)")
+                                "pick 3-4 points (motus calibrate)")
         else:
             from .calibrate import load_points_csv
 
@@ -1342,7 +1342,7 @@ def run_autocalibration(cfg, log=print, run_dir: Path | None = None, device: str
                 h.method_info = {k: v for k, v in info.items() if k != "extra_starts"}
             else:
                 report["reason"] = (info.get("reason", "the road fit failed")
-                                    + ": pick 4+ points (groundtrack calibrate)")
+                                    + ": pick 4+ points (motus calibrate)")
     if h is None:
         log("automatic calibration not possible: " + report.get("reason", "see the report"))
         report["result"] = None

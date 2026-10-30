@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="motus">
+<meta name="theme-color" content="#000000">
+<meta name="referrer" content="no-referrer">
+<title>motus live</title>
+<link rel="manifest" href="manifest.json?k=__K__">
+<link rel="apple-touch-icon" href="icon.png?k=__K__">
+<link rel="icon" href="icon.png?k=__K__">
+<link rel="preload" href="fonts/Geist-Variable.woff2?k=__K__" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/SplineSansMono-Variable.woff2?k=__K__" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="phone.css?k=__K__">
+<script type="module" src="phone.js?k=__K__"></script>
+</head>
+<body>
+<main class="app">
+  <header class="top">
+    <span class="wm"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="19" r="8"/><path d="M3 6.5h26"/></svg><span class="word" aria-label="motus">mōtus</span></span>
+    <span class="label muted">Live</span>
+    <span id="who" class="who label" hidden></span>
+    <div class="status label"><span id="dot" class="dot"></span><span id="conn">connecting</span>
+      <span id="hz" class="mono">0 Hz</span><span id="rtt" class="mono">– ms</span>
+      <span id="viewst" class="muted">view not open</span></div>
+  </header>
+
+  <section class="cell left">
+    <button id="zero" class="zero" type="button">
+      <svg class="horizon" viewBox="-100 -50 200 100" aria-hidden="true">
+        <defs><clipPath id="frame"><rect x="-100" y="-50" width="200" height="100"/></clipPath></defs>
+        <rect class="frame" x="-99.5" y="-49.5" width="199" height="99"/>
+        <g clip-path="url(#frame)"><line id="horizon" class="line" x1="-160" y1="0" x2="160" y2="0"/></g>
+        <rect class="reticle" x="-8" y="-8" width="16" height="16"/>
+        <path class="reticle" d="M0 -26V-14M0 14V26M-26 0H-14M14 0H26"/>
+      </svg>
+      <span class="label">Zero</span>
+    </button>
+    <div id="tilt" class="tilt mono">tilt –  roll –</div>
+    <p class="hint">Hold it like a camera: landscape, screen toward you. Zero when framed.</p>
+  </section>
+
+  <section class="cell mid">
+    <p id="note" class="note" hidden></p>
+    <div class="gain">
+      <div class="head"><span class="label">Gain</span>
+        <button id="gainval" class="gainval" type="button" title="back to 1×">1.00×</button></div>
+      <div class="ruler">
+        <input id="gain" type="range" min="0" max="1000" step="1" aria-label="gain">
+        <div class="marks mono" aria-hidden="true"><span class="g01">0.1</span><span class="g025">0.25</span><span class="g05">0.5</span><span class="g1">1</span><span class="g2">2</span><span class="g3">3×</span></div>
+      </div>
+    </div>
+    <div class="transport">
+      <button id="play" class="play" type="button">Play</button>
+      <div class="times"><span id="tcur" class="now">0:00</span><span id="tdur" class="dur mono">0:00</span></div>
+      <input id="scrub" type="range" min="0" max="1" step="0.01" value="0" disabled aria-label="time">
+    </div>
+  </section>
+
+  <section class="cell right">
+    <label id="spotbox" class="clip"><span class="label muted">Camera</span>
+      <select id="spot" disabled><option value="">–</option></select></label>
+    <button id="cam" class="cam" type="button" hidden>
+      <span class="label muted">Camera <span id="camarea" class="camarea"></span></span>
+      <span class="camval"><span id="camname" class="camname">–</span><span id="camgo" class="camgo label"></span></span>
+    </button>
+    <button id="section" class="tbtn section" type="button">Section</button>
+    <button id="space" class="space" type="button" aria-label="Space: hold to turn the space, double-tap to level it">
+      <svg class="plane" viewBox="0 0 44 28" aria-hidden="true"><path d="M3 23 15 11h26L29 23Z"/><path d="M8 7.5C15 2 29 2 36 6.5M32.4 3.4 36 6.5l-4.2 1.5"/></svg>
+      <span class="label">Space</span>
+      <span id="spacest" class="spacest mono">hold: turn the space</span>
+    </button>
+  </section>
+</main>
+
+<div id="picker" class="picker" hidden>
+  <div class="phead">
+    <button id="pback" class="ptext pback" type="button" hidden>Areas</button>
+    <span id="ptitle" class="ptitle label">Pick an area</span>
+    <button id="pnone" class="ptext" type="button" hidden>No camera</button>
+    <button id="pclose" class="ptext" type="button">Close</button>
+  </div>
+  <div id="plist" class="plist"></div>
+</div>
+
+<div id="turn" class="turn label" hidden>Landscape is the camera hold: turn the phone (rotation lock off).</div>
+
+<div id="start" class="start">
+  <div class="start-wm"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="19" r="8"/><path d="M3 6.5h26"/></svg><h1 aria-label="motus live">mōtus</h1><span class="label muted">Live</span></div>
+  <p>The phone is the camera. Hold it like one: landscape, screen toward you, the back camera
+    to the scene.</p>
+  <button id="go" class="go" type="button">Start</button>
+  <p id="msg" class="msg"></p>
+  <p class="small">hub: <span id="hubst">connecting</span></p>
+  <p class="small">Motion sensors only. No camera, no video leaves this phone.</p>
+</div>
+</body>
+</html>

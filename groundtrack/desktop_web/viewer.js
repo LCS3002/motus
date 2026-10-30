@@ -4,8 +4,10 @@
    editor and the camera map. Coordinates are image pixels; the aerial converts to
    British National Grid metres with its extent. */
 
-const COL = { good: "#19D27A", warn: "#FFB020", bad: "#FF3D6E", ink: "#0B0B0F", neon: "#39FF88",
-              video: "#FF3D6E", map: "#2E9BFF", proj: "#FFD400" };
+const COL = { good: "#fff", warn: "#e5cf6a", bad: "#f0606f", fg: "#fff", bg: "#000",
+              under: "rgba(0,0,0,.6)", rule: "rgba(255,255,255,.22)", grid: "rgba(255,255,255,.32)",
+              guide: "rgba(255,255,255,.75)", proj: "#e5cf6a" };
+const MONO = "500 10.5px 'Spline Sans Mono', ui-monospace, monospace";
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 class Viewer {
@@ -129,10 +131,12 @@ class Viewer {
     const c = this.ctx, d = this.dpr;
     if (!this.w) return;
     c.setTransform(d, 0, 0, d, 0, 0);
-    c.fillStyle = "#1A1A20"; c.fillRect(0, 0, this.w, this.h);
+    c.fillStyle = COL.bg; c.fillRect(0, 0, this.w, this.h);
     if (this.img) {
       c.imageSmoothingEnabled = this.scale < 3; c.imageSmoothingQuality = "high";
       c.drawImage(this.img, this.tx, this.ty, this.iw * this.scale, this.ih * this.scale);
+      c.lineWidth = 1; c.strokeStyle = COL.rule;
+      c.strokeRect(Math.round(this.tx) - 0.5, Math.round(this.ty) - 0.5, Math.round(this.iw * this.scale) + 1, Math.round(this.ih * this.scale) + 1);
     }
     if (this.opts.draw) { c.save(); this.opts.draw(c, this); c.restore(); }
     if (this.loupe && this.mouse && this.img && !this._panning) this._drawLoupe(c);
@@ -147,8 +151,8 @@ class Viewer {
     if (cy - R < 6) cy = my + 86;
     const s = this.scale * zoom, half = R / s;
     c.save();
-    c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.closePath();
-    c.fillStyle = "#1A1A20"; c.fill(); c.clip();
+    c.beginPath(); c.rect(cx - R, cy - R, 2 * R, 2 * R);
+    c.fillStyle = COL.bg; c.fill(); c.clip();
     c.imageSmoothingEnabled = s < 4;
     c.drawImage(this.img, ix - half, iy - half, 2 * half, 2 * half, cx - R, cy - R, 2 * R, 2 * R);
     if (this.opts.drawLoupe) this.opts.drawLoupe(c, (x, y) => [cx + (x - ix) * s, cy + (y - iy) * s], s);
@@ -156,9 +160,9 @@ class Viewer {
     c.beginPath(); c.moveTo(cx - R, cy); c.lineTo(cx - 5, cy); c.moveTo(cx + 5, cy); c.lineTo(cx + R, cy);
     c.moveTo(cx, cy - R); c.lineTo(cx, cy - 5); c.moveTo(cx, cy + 5); c.lineTo(cx, cy + R); c.stroke();
     c.restore();
-    c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2);
-    c.lineWidth = 4; c.strokeStyle = "#fff"; c.stroke();
-    c.lineWidth = 1; c.strokeStyle = "rgba(11,11,15,.5)"; c.stroke();
+    c.beginPath(); c.rect(cx - R - 0.5, cy - R - 0.5, 2 * R + 1, 2 * R + 1);
+    c.lineWidth = 3; c.strokeStyle = COL.under; c.stroke();
+    c.lineWidth = 1; c.strokeStyle = COL.fg; c.stroke();
   }
 
   _bind() {
@@ -221,42 +225,43 @@ class Viewer {
 
 /* ---------- drawing helpers ---------- */
 function drawMarker(c, x, y, label, ring = "#fff", active = false) {
-  const r = active ? 9 : 7;
-  c.lineWidth = 4; c.strokeStyle = "rgba(11,11,15,.55)";
-  c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke();
-  c.lineWidth = 2.2; c.strokeStyle = ring;
-  c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke();
-  c.fillStyle = ring; c.beginPath(); c.arc(x, y, 1.6, 0, Math.PI * 2); c.fill();
-  if (label != null) {
-    c.font = "600 11px 'Inter var', Inter, 'Segoe UI', sans-serif";
-    const t = String(label), w = c.measureText(t).width + 10;
-    const lx = x + r + 3, ly = y - r - 15;
-    c.fillStyle = active ? COL.neon : COL.ink;
-    roundRect(c, lx, ly, w, 16, 8); c.fill();
-    c.fillStyle = active ? COL.ink : "#fff";
-    c.fillText(t, lx + 5, ly + 11.5);
+  const h = active ? 4.5 : 3.5, a = h + 2, b = h + 6;
+  c.beginPath();
+  c.rect(x - h, y - h, 2 * h, 2 * h);
+  c.moveTo(x - b, y); c.lineTo(x - a, y); c.moveTo(x + a, y); c.lineTo(x + b, y);
+  c.moveTo(x, y - b); c.lineTo(x, y - a); c.moveTo(x, y + a); c.lineTo(x, y + b);
+  c.lineWidth = 3; c.strokeStyle = COL.under; c.stroke();
+  c.lineWidth = 1.2; c.strokeStyle = ring; c.stroke();
+  if (active) {
+    const p = b + 4;
+    c.lineWidth = 1; c.strokeStyle = COL.fg; c.strokeRect(x - p, y - p, 2 * p, 2 * p);
   }
-}
-
-function roundRect(c, x, y, w, h, r) {
-  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
-  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  if (label != null) {
+    c.font = MONO; c.lineJoin = "round";
+    const lx = x + h + 5, ly = y - h - 5;
+    c.lineWidth = 3; c.strokeStyle = COL.under; c.strokeText(String(label), lx, ly);
+    c.fillStyle = ring; c.fillText(String(label), lx, ly);
+  }
 }
 
 function drawCross(c, x, y, col, s = 5) {
-  c.lineWidth = 3.5; c.strokeStyle = "rgba(11,11,15,.55)";
-  c.beginPath(); c.moveTo(x - s, y - s); c.lineTo(x + s, y + s); c.moveTo(x + s, y - s); c.lineTo(x - s, y + s); c.stroke();
-  c.lineWidth = 1.8; c.strokeStyle = col; c.stroke();
+  c.beginPath(); c.moveTo(x - s, y - s); c.lineTo(x + s, y + s); c.moveTo(x + s, y - s); c.lineTo(x - s, y + s);
+  c.lineWidth = 3; c.strokeStyle = COL.under; c.stroke();
+  c.lineWidth = 1.2; c.strokeStyle = col; c.stroke();
 }
 
+/* the real camera: a target at its position, its view as a thin fan */
 function drawCamera(c, x, y, yawDeg, hfov, col, len = 46) {
   if (yawDeg != null) {
     const a = (yawDeg - 90) * Math.PI / 180, h = ((hfov || 60) / 2) * Math.PI / 180;
-    c.fillStyle = "rgba(57,255,136,.22)"; c.strokeStyle = "rgba(57,255,136,.9)"; c.lineWidth = 1.5;
+    c.fillStyle = "rgba(255,255,255,.06)"; c.strokeStyle = COL.guide; c.lineWidth = 1;
     c.beginPath(); c.moveTo(x, y); c.arc(x, y, len, a - h, a + h); c.closePath(); c.fill(); c.stroke();
   }
-  c.fillStyle = col; c.strokeStyle = "#fff"; c.lineWidth = 2;
-  c.beginPath(); c.arc(x, y, 6.5, 0, Math.PI * 2); c.fill(); c.stroke();
+  c.beginPath(); c.arc(x, y, 5.5, 0, Math.PI * 2);
+  c.moveTo(x - 10, y); c.lineTo(x - 3, y); c.moveTo(x + 3, y); c.lineTo(x + 10, y);
+  c.moveTo(x, y - 10); c.lineTo(x, y - 3); c.moveTo(x, y + 3); c.lineTo(x, y + 10);
+  c.lineWidth = 3; c.strokeStyle = COL.under; c.stroke();
+  c.lineWidth = 1.2; c.strokeStyle = col; c.stroke();
 }
 
 function errClass(e, warn) {
@@ -282,7 +287,7 @@ function mountCalibrator(root, config, ui) {
     <div class="panel-head">
       <h2>Calibrate</h2><span class="sub" id="c-sub">Click the same ground point in the video, then on the aerial. 6–8 well-spread pairs.</span>
       <div class="grow"></div>
-      <button class="btn sm white" id="c-auto" title="Fit the camera from the people / traffic in a run (groundtrack autocalibrate)">Auto from movement</button>
+      <button class="btn sm white" id="c-auto" title="Fit the camera from the people / traffic in a run (motus autocalibrate)">Auto from movement</button>
     </div>
     <div class="scrub">
       <span>Frame</span><input type="range" id="c-frame" min="0" max="0" step="1" value="0" aria-label="Video frame">
@@ -291,10 +296,10 @@ function mountCalibrator(root, config, ui) {
     </div>
     <div class="cal">
       <div class="views">
-        <div class="view" id="c-video"><span class="tag"><i style="background:${COL.video}"></i>Video</span>
+        <div class="view" id="c-video"><span class="tag"><i></i>Video</span>
           <div class="tools"><button id="c-grid" class="on" title="Ground grid (G)">${ICON.grid}</button><button data-fit="v" title="Fit (F)">${ICON.fit}</button></div>
           <div class="loading">Loading frame…</div><div class="ask" id="c-ask-v" hidden></div></div>
-        <div class="view" id="c-map"><span class="tag"><i style="background:${COL.map}"></i><span id="c-map-tag">Aerial</span></span>
+        <div class="view" id="c-map"><span class="tag"><i class="round"></i><span id="c-map-tag">Aerial</span></span>
           <div class="tools"><button id="c-foot" class="on" title="What the camera sees">${ICON.view}</button><button id="c-cam" title="Mark where you stood (C)">${ICON.camera}</button><button data-fit="m" title="Fit (F)">${ICON.fit}</button></div>
           <div class="loading">Loading aerial…</div><div class="ask" id="c-ask-m" hidden></div></div>
       </div>
@@ -312,7 +317,7 @@ function mountCalibrator(root, config, ui) {
     onDrag: (i, x, y) => { S.pairs[i].u = clamp(x, 0, vv.iw); S.pairs[i].v = clamp(y, 0, vv.ih); },
     onDragEnd: () => { refit(); renderSide(); },
     onHover: (h) => setHover(h),
-    drawLoupe: (c, T) => { for (const [i, p] of S.pairs.entries()) { const [x, y] = T(p.u, p.v); drawCross(c, x, y, i === S.hover ? COL.neon : "#fff", 4); } },
+    drawLoupe: (c, T) => { for (const [i, p] of S.pairs.entries()) { const [x, y] = T(p.u, p.v); drawCross(c, x, y, COL.fg, i === S.hover ? 6 : 4); } },
   });
   const mv = new Viewer($("#c-map"), {
     draw: (c, v) => drawMap(c, v),
@@ -322,7 +327,7 @@ function mountCalibrator(root, config, ui) {
     onDrag: (i, x, y) => { const [E, N] = S.geo.toWorld(x, y); S.pairs[i].E = E; S.pairs[i].N = N; },
     onDragEnd: () => { refit(); renderSide(); },
     onHover: (h) => setHover(h),
-    drawLoupe: (c, T) => { for (const [i, p] of S.pairs.entries()) { if (p.E == null) continue; const [x, y] = T(...S.geo.toImg(p.E, p.N)); drawCross(c, x, y, i === S.hover ? COL.neon : "#fff", 4); } },
+    drawLoupe: (c, T) => { for (const [i, p] of S.pairs.entries()) { if (p.E == null) continue; const [x, y] = T(...S.geo.toImg(p.E, p.N)); drawCross(c, x, y, COL.fg, i === S.hover ? 6 : 4); } },
   });
 
   function setHover(h) {
@@ -353,7 +358,7 @@ function mountCalibrator(root, config, ui) {
 
   function drawVideo(c, v) {
     if (S.grid && S.fit && S.fit.ok && S.fit.grid) {
-      c.lineWidth = 1; c.strokeStyle = "rgba(57,255,136,.55)";
+      c.lineWidth = 1; c.strokeStyle = COL.grid;
       for (const ln of S.fit.grid.lines) {
         c.beginPath();
         ln.forEach(([u, w], k) => { const [x, y] = v.toScreen(u, w); k ? c.lineTo(x, y) : c.moveTo(x, y); });
@@ -363,7 +368,7 @@ function mountCalibrator(root, config, ui) {
     S.pairs.forEach((p, i) => { const [x, y] = v.toScreen(p.u, p.v); drawMarker(c, x, y, i + 1, pointColour(i), i === S.hover); });
     if (S.pending) {
       const [x, y] = v.toScreen(S.pending.u, S.pending.v);
-      drawMarker(c, x, y, S.pairs.length + 1, COL.neon, true);
+      drawMarker(c, x, y, S.pairs.length + 1, COL.fg, true);
     }
   }
 
@@ -373,34 +378,34 @@ function mountCalibrator(root, config, ui) {
     if (S.foot && fit && fit.footprint && fit.footprint.length > 2) {
       c.beginPath();
       fit.footprint.forEach(([E, N], k) => { const [x, y] = v.toScreen(...g.toImg(E, N)); k ? c.lineTo(x, y) : c.moveTo(x, y); });
-      c.closePath(); c.fillStyle = "rgba(57,255,136,.13)"; c.fill();
-      c.setLineDash([6, 5]); c.lineWidth = 1.5; c.strokeStyle = "rgba(57,255,136,.9)"; c.stroke(); c.setLineDash([]);
+      c.closePath(); c.fillStyle = "rgba(255,255,255,.04)"; c.fill();
+      c.setLineDash([4, 4]); c.lineWidth = 1; c.strokeStyle = COL.guide; c.stroke(); c.setLineDash([]);
     }
     const cp = S.st.camera_position;
     if (cp) {
       const [x, y] = v.toScreen(...g.toImg(cp.E, cp.N));
       const r = (cp.position_tol_m || 0) * g.pxPerM * v.scale;
-      if (r > 4) { c.setLineDash([3, 4]); c.lineWidth = 1.2; c.strokeStyle = "rgba(255,255,255,.75)"; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke(); c.setLineDash([]); }
+      if (r > 4) { c.setLineDash([2, 3]); c.lineWidth = 1; c.strokeStyle = COL.guide; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke(); c.setLineDash([]); }
     }
     if (fit && fit.camera && fit.camera.E != null) {
       const [x, y] = v.toScreen(...g.toImg(fit.camera.E, fit.camera.N));
-      drawCamera(c, x, y, fit.camera.yaw_deg, fit.camera.hfov_deg, COL.ink);
+      drawCamera(c, x, y, fit.camera.yaw_deg, fit.camera.hfov_deg, COL.fg);
     } else if (cp) {
       const [x, y] = v.toScreen(...g.toImg(cp.E, cp.N));
-      drawCamera(c, x, y, null, null, "#fff");
+      drawCamera(c, x, y, null, null, COL.guide);
     }
     if (fit && fit.points) {
       S.pairs.forEach((p, i) => {
         const q = fit.points[i]; if (!q || !q.proj || p.E == null) return;
         const [x0, y0] = v.toScreen(...g.toImg(p.E, p.N)), [x1, y1] = v.toScreen(...g.toImg(q.proj[0], q.proj[1]));
-        c.lineWidth = 1.6; c.strokeStyle = COL.proj; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
-        drawCross(c, x1, y1, COL.proj, 4.5);
+        c.lineWidth = 1; c.strokeStyle = COL.proj; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
+        drawCross(c, x1, y1, COL.proj, 3.5);
       });
     }
     if (S.pending && S.guess) {
       const [x, y] = v.toScreen(...g.toImg(S.guess.E, S.guess.N));
       const r = Math.max(14, 0.25 * S.guess.r_m * g.pxPerM * v.scale);
-      c.setLineDash([5, 5]); c.lineWidth = 2; c.strokeStyle = COL.proj;
+      c.setLineDash([2, 4]); c.lineWidth = 1; c.strokeStyle = COL.guide;
       c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
     }
     S.pairs.forEach((p, i) => { if (p.E == null) return; const [x, y] = v.toScreen(...g.toImg(p.E, p.N)); drawMarker(c, x, y, i + 1, pointColour(i), i === S.hover); });
@@ -524,7 +529,7 @@ function mountCalibrator(root, config, ui) {
       <div class="card">
         <button class="btn neon" id="c-save" style="justify-content:center">${ICON.check} Save calibration</button>
         <div class="btns"><button class="btn sm" id="c-revert" ${saved || st.pairs.length ? "" : "disabled"}>Back to saved pairs</button></div>
-        <div class="hint">Saving runs <span class="mono">groundtrack calibrate</span> with these pairs; the old calibration is kept in <span class="mono">calibration/backup</span>.</div>
+        <div class="hint">Saving runs <span class="mono">motus calibrate</span> with these pairs; the old calibration is kept in <span class="mono">calibration/backup</span>.</div>
       </div>
       <div class="card"><h3>Camera position ${cp ? '<span class="chip ok">set</span>' : '<span class="chip warn">not set</span>'}</h3>
         ${cp ? `<dl class="kv"><dt>E, N</dt><dd class="num">${cp.E}, ${cp.N}</dd><dt>Height</dt><dd class="num">${cp.height_m} m ± ${cp.height_tol_m ?? "–"}</dd><dt>Within</dt><dd class="num">${cp.position_tol_m ?? "–"} m</dd></dl>` : '<p class="hint">With the camera position known, 3 pairs are enough and the fit is a physical camera (much more reliable). Mark it on the aerial.</p>'}
@@ -560,7 +565,7 @@ function mountCalibrator(root, config, ui) {
     if (f && f.ok) {
       const cls = errClass(f.rmse_m, S.st.warn_m);
       const cam = f.camera;
-      html = `<div style="display:flex;align-items:end;gap:10px"><div class="big-rmse ${cls}"><span class="v">${(f.rmse_m ?? 0).toFixed(2)}</span><small>m RMSE</small></div><div class="grow"></div>${S.fitting ? '<span class="chip">fitting…</span>' : `<span class="chip ${f.method === "camera" ? "ok" : "info"}">${f.method === "camera" ? "camera fit" : "homography"}</span>`}</div>
+      html = `<div style="display:flex;align-items:end;gap:10px"><div class="big-rmse ${cls}"><span class="v">${(f.rmse_m ?? 0).toFixed(2)}</span><small>m RMSE</small></div><div class="grow"></div>${S.fitting ? '<span class="chip">fitting…</span>' : `<span class="chip">${f.method === "camera" ? "camera fit" : "homography"}</span>`}</div>
         <div class="mini-stats"><div><b>${fmtM(f.max_error_m)}</b><span>worst</span></div><div><b>${f.loo_rmse_m != null ? fmtM(f.loo_rmse_m) : "–"}</b><span>leave-one-out</span></div><div><b>${n}</b><span>pairs</span></div></div>
         ${f.spread != null && f.spread < 0.3 ? '<div class="note warn">The points lie along one line: add some left / right and near / far.</div>' : ""}
         ${n < 6 ? `<div class="note">${6 - n} more well-spread pair${6 - n === 1 ? "" : "s"} recommended.</div>` : ""}
@@ -585,7 +590,7 @@ function mountCalibrator(root, config, ui) {
       const q = f && f.points && f.points[i];
       const e = q ? (q.inlier ? q.error_m : null) : undefined;
       const cls = q ? (q.inlier ? errClass(q.error_m, S.st.warn_m) : "bad") : "";
-      return `<div class="pair ${i === S.hover ? "hover" : ""}" data-i="${i}"><span class="k">${i + 1}</span>
+      return `<div class="pair ${i === S.hover ? "hover" : ""}" data-i="${i}"><span class="k">${String(i + 1).padStart(2, "0")}</span>
         <span class="xy">${p.E.toFixed(1)}, ${p.N.toFixed(1)}</span>
         <span class="e ${cls}">${e === undefined ? "" : q.inlier ? fmtM(e) : "outlier"}</span>
         <button title="Delete this pair" data-del="${i}">${ICON.x}</button></div>`;
@@ -659,7 +664,7 @@ function mountCalibrator(root, config, ui) {
     $("#c-cam").onclick = () => { S.markCam = !S.markCam; askState(); };
     root.querySelectorAll("[data-fit]").forEach((b) => b.onclick = () => (b.dataset.fit === "v" ? vv : mv).fit());
     $("#c-auto").onclick = async () => {
-      if (!await ui.ask("Calibrate automatically?", "Fits the camera from the people / vehicles in the latest run (groundtrack autocalibrate). The result waits as a candidate: your calibration is only replaced when you choose 'Use it'.", "Start")) return;
+      if (!await ui.ask("Calibrate automatically?", "Fits the camera from the people / vehicles in the latest run (motus autocalibrate). The result waits as a candidate: your calibration is only replaced when you choose 'Use it'.", "Start")) return;
       try { const j = await ui.post("/api/job", { kind: "autocalibrate", config }); ui.watch(j, async () => { await reload(); }); ui.toast("Automatic calibration started"); }
       catch (e) { ui.toast(e.message, "error"); }
     };
@@ -703,7 +708,7 @@ function mountArea(root, config, ui) {
   root.innerHTML = `
     <div class="panel-head"><h2>Area to track</h2><span class="sub">Outline the ground that matters. Sky, far blurry ground and reflections stay outside.</span></div>
     <div class="cal area">
-      <div class="views"><div class="view" id="a-view"><span class="tag"><i style="background:${COL.neon}"></i><span id="a-tag">Calibration frame</span></span>
+      <div class="views"><div class="view" id="a-view"><span class="tag"><i></i><span id="a-tag">Calibration frame</span></span>
         <div class="tools"><button data-fit title="Fit (F)">${ICON.fit}</button></div><div class="loading">Loading frame…</div><div class="ask" id="a-ask"></div></div></div>
       <div class="calside" id="a-side"></div>
     </div>`;
@@ -757,19 +762,19 @@ function mountArea(root, config, ui) {
     if (P.length >= 3) {
       c.beginPath(); c.rect(0, 0, vw.w, vw.h);
       P.forEach(([x, y], k) => k ? c.lineTo(x, y) : c.moveTo(x, y)); c.closePath();
-      c.fillStyle = "rgba(11,11,15,.55)"; c.fill("evenodd");
+      c.fillStyle = "rgba(0,0,0,.55)"; c.fill("evenodd");
     }
     if (P.length >= 2) {
       c.beginPath(); P.forEach(([x, y], k) => k ? c.lineTo(x, y) : c.moveTo(x, y));
       if (P.length >= 3) c.closePath();
-      c.lineWidth = 4; c.strokeStyle = "rgba(11,11,15,.5)"; c.stroke();
-      c.lineWidth = 2; c.strokeStyle = COL.neon; c.stroke();
+      c.lineWidth = 3; c.strokeStyle = COL.under; c.stroke();
+      c.lineWidth = 1.2; c.strokeStyle = COL.fg; c.stroke();
     }
     P.forEach(([x, y], i) => {
-      const r = i === S.hover ? 7 : 5;
-      c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2);
-      c.fillStyle = i === S.hover ? COL.neon : "#fff"; c.fill();
-      c.lineWidth = 1.5; c.strokeStyle = COL.ink; c.stroke();
+      const r = 3.5;
+      c.fillStyle = COL.fg; c.fillRect(x - r, y - r, 2 * r, 2 * r);
+      c.lineWidth = 1; c.strokeStyle = COL.bg; c.strokeRect(x - r, y - r, 2 * r, 2 * r);
+      if (i === S.hover) { c.strokeStyle = COL.fg; c.strokeRect(x - 9, y - 9, 18, 18); }
     });
   }
 
@@ -844,15 +849,15 @@ function mountArea(root, config, ui) {
 /* ======================================================================== camera map */
 function mountCameraMap(host, config, ui, onPick) {
   const S = { geo: null, cam: null };
-  host.innerHTML = `<span class="tag"><i style="background:${COL.ink}"></i>Click where you stood</span>
+  host.innerHTML = `<span class="tag"><i class="round"></i>Click where you stood</span>
     <div class="tools"><button data-fit title="Fit">${ICON.fit}</button></div><div class="loading">Loading aerial…</div>`;
   const v = new Viewer(host, {
     draw: (c, vw) => {
       if (!S.geo || !S.cam || S.cam.E == null) return;
       const [x, y] = vw.toScreen(...S.geo.toImg(S.cam.E, S.cam.N));
       const r = (S.cam.tol || 0) * S.geo.pxPerM * vw.scale;
-      if (r > 4) { c.fillStyle = "rgba(57,255,136,.14)"; c.strokeStyle = "rgba(57,255,136,.9)"; c.setLineDash([5, 4]); c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); c.stroke(); c.setLineDash([]); }
-      drawCamera(c, x, y, null, null, COL.ink);
+      if (r > 4) { c.fillStyle = "rgba(255,255,255,.05)"; c.strokeStyle = COL.guide; c.setLineDash([2, 3]); c.lineWidth = 1; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); c.stroke(); c.setLineDash([]); }
+      drawCamera(c, x, y, null, null, COL.fg);
     },
     onClick: (x, y) => { if (!S.geo || !v.inside(x, y)) return; const [E, N] = S.geo.toWorld(x, y); onPick(E, N); },
   });
@@ -879,10 +884,10 @@ function mountCameraMap(host, config, ui, onPick) {
 function fmtM(v) { return v == null || !isFinite(v) ? "–" : `${(+v).toFixed(2)} m`; }
 
 const ICON = {
-  grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
-  fit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/></svg>',
-  view: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20 4 6h16z"/></svg>',
-  camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/></svg>',
-  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>',
-  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
+  fit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+  view: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 20 4 6h16z"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
 };

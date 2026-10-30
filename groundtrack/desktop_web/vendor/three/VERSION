@@ -1,0 +1,2 @@
+three.js 0.185.1 (npm "three@0.185.1", MIT, LICENSE beside it): build/three.module.min.js + three.core.min.js,
+examples/jsm/controls/{OrbitControls,TransformControls}.js, examples/jsm/lines/{Line2,LineGeometry,LineMaterial,LineSegments2,LineSegmentsGeometry}.js, unchanged.

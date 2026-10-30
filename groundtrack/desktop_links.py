@@ -177,7 +177,7 @@ def is_kit(folder: Path) -> bool:
 def kit_info(folder: Path) -> dict:
     folder = Path(folder)
     d = {"path": str(folder), "name": folder.name, "site": folder.name, "modules": [],
-         "source": "Grasshopper" if any(folder.glob("*_field.geo")) else "groundtrack",
+         "source": "Grasshopper" if any(folder.glob("*_field.geo")) else "motus",
          "mtime": (folder / "modules.json").stat().st_mtime}
     try:
         m = json.loads((folder / "modules.json").read_text(encoding="utf-8"))

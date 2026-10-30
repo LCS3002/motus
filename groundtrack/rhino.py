@@ -74,10 +74,12 @@ def _field_z(field: pd.DataFrame, heights: dict) -> np.ndarray:
 
 # --------------------------------------------------------------------------- .3dm
 def write_3dm(path: Path, points: pd.DataFrame, fields: dict, origin, z0: float | None,
-              cfg: Config, cell: float, cameras=(), outlines=(), title: str = "") -> Path:
+              cfg: Config, cell: float, cameras=(), outlines=(), title: str = "",
+              by_camera: dict | None = None) -> Path:
     """points: points.csv rows (x, y[, z], speed, group, track_id, ...); fields: group ->
     vector-field DataFrame (smooth_field columns); cameras: [(name, E, N, height above Z0)];
-    outlines: [(name, [(E, N), ...])] closed view outlines."""
+    outlines: [(name, [(E, N), ...])] closed view outlines. by_camera: {points' camera: layer
+    name}, the tracks layered per camera, its groups under it (a Live layers export only)."""
     import rhino3dm as r3
 
     ox, oy = float(origin[0]), float(origin[1])
@@ -117,48 +119,57 @@ def write_3dm(path: Path, points: pd.DataFrame, fields: dict, origin, z0: float 
     p["ly"] = p["y"] - oy
     p["lz"] = (p["z"].fillna(z0) - z0) if has_z else 0.0
     p = p.sort_values(["track_id", "time_s"])
-    for gname in sorted(p["group"].unique()):
-        lo, hi = ranges.get(gname, ranges["all"])
-        gl = layer(gname, _rgb(0.5 * (lo + hi), lo, hi), root.Id)
-        lt = layer(f"tracks_{gname}", (60, 60, 60), gl.Id)
-        ls = layer(f"speed_segments_{gname}", (60, 60, 60), gl.Id, visible=False)
-        lp = layer(f"samples_{gname}", (60, 60, 60), gl.Id, visible=False)
-        g = p[p["group"] == gname]
-        cloud = r3.PointCloud()
-        for tid, t in g.groupby("track_id"):
-            xyz = t[["lx", "ly", "lz"]].to_numpy(float)
-            sp = t["speed"].to_numpy(float)
-            for q, s in zip(xyz, sp):
-                cloud.Add(r3.Point3d(*q), (*_rgb(s, lo, hi), 255))
-            if len(t) < 2:
-                continue
-            pl = r3.Polyline()
-            for q in xyz:
-                pl.Add(*q)
-            ms = float(np.mean(sp))
-            info = dict(track_id=int(tid), group=gname, cls=t["class"].iloc[0],
-                        mean_speed=round(ms, 3), duration_s=round(float(np.ptp(t["time_s"])), 2))
-            if "clip" in t:
-                info["clip"] = t["clip"].iloc[0]
-            m.Objects.AddCurve(r3.PolylineCurve(pl), attrs(lt, _rgb(ms, lo, hi),
-                                                           f"track {int(tid)}", **info))
-            # speed segments: cut where the speed class changes (shared end points)
-            b = np.clip(((sp - lo) / max(hi - lo, 1e-9) * SEGMENT_BINS).astype(int), 0,
-                        SEGMENT_BINS - 1)
-            start = 0
-            for k in range(1, len(b) + 1):
-                if k == len(b) or b[k] != b[start]:
-                    seg = xyz[start:min(k + 1, len(xyz))]
-                    if len(seg) >= 2:
-                        sl = r3.Polyline()
-                        for q in seg:
-                            sl.Add(*q)
-                        s_mid = lo + (b[start] + 0.5) / SEGMENT_BINS * (hi - lo)
-                        m.Objects.AddCurve(r3.PolylineCurve(sl), attrs(
-                            ls, _rgb(s_mid, lo, hi), "", track_id=int(tid),
-                            speed=round(float(sp[start:k].mean()), 3)))
-                    start = k
-        m.Objects.AddPointCloud(cloud, attrs(lp, None, f"samples {gname}"))
+
+    def groups(p, parent):
+        for gname in sorted(p["group"].unique()):
+            lo, hi = ranges.get(gname, ranges["all"])
+            gl = layer(gname, _rgb(0.5 * (lo + hi), lo, hi), parent.Id)
+            lt = layer(f"tracks_{gname}", (60, 60, 60), gl.Id)
+            ls = layer(f"speed_segments_{gname}", (60, 60, 60), gl.Id, visible=False)
+            lp = layer(f"samples_{gname}", (60, 60, 60), gl.Id, visible=False)
+            g = p[p["group"] == gname]
+            cloud = r3.PointCloud()
+            for tid, t in g.groupby("track_id"):
+                xyz = t[["lx", "ly", "lz"]].to_numpy(float)
+                sp = t["speed"].to_numpy(float)
+                for q, s in zip(xyz, sp):
+                    cloud.Add(r3.Point3d(*q), (*_rgb(s, lo, hi), 255))
+                if len(t) < 2:
+                    continue
+                pl = r3.Polyline()
+                for q in xyz:
+                    pl.Add(*q)
+                ms = float(np.mean(sp))
+                info = dict(track_id=int(tid), group=gname, cls=t["class"].iloc[0],
+                            mean_speed=round(ms, 3), duration_s=round(float(np.ptp(t["time_s"])), 2))
+                if "clip" in t:
+                    info["clip"] = t["clip"].iloc[0]
+                m.Objects.AddCurve(r3.PolylineCurve(pl), attrs(lt, _rgb(ms, lo, hi),
+                                                               f"track {int(tid)}", **info))
+                # speed segments: cut where the speed class changes (shared end points)
+                b = np.clip(((sp - lo) / max(hi - lo, 1e-9) * SEGMENT_BINS).astype(int), 0,
+                            SEGMENT_BINS - 1)
+                start = 0
+                for k in range(1, len(b) + 1):
+                    if k == len(b) or b[k] != b[start]:
+                        seg = xyz[start:min(k + 1, len(xyz))]
+                        if len(seg) >= 2:
+                            sl = r3.Polyline()
+                            for q in seg:
+                                sl.Add(*q)
+                            s_mid = lo + (b[start] + 0.5) / SEGMENT_BINS * (hi - lo)
+                            m.Objects.AddCurve(r3.PolylineCurve(sl), attrs(
+                                ls, _rgb(s_mid, lo, hi), "", track_id=int(tid),
+                                speed=round(float(sp[start:k].mean()), 3)))
+                        start = k
+            m.Objects.AddPointCloud(cloud, attrs(lp, None, f"samples {gname}"))
+
+    if by_camera is None:
+        groups(p, root)
+    else:                                # one parent layer per camera, its groups under it
+        for cam, label in by_camera.items():
+            if (p["camera"] == cam).any():
+                groups(p[p["camera"] == cam], layer(str(label), (30, 30, 30), root.Id, camera=cam))
 
     # vector-field arrows, centred on their cell, as long as the cell at the top speed
     heights = _cell_heights(points, cell, z0) if has_z else {}
@@ -421,7 +432,7 @@ def write_grasshopper_script(path: Path, points_csv: Path, field_files: dict, or
 
 # --------------------------------------------------------------------------- a run
 def write_rhino(run_dir: Path, cfg: Config, origin, z0: float | None, log=print,
-                title: str = "", cameras=(), outlines=()) -> dict:
+                title: str = "", cameras=(), outlines=(), by_camera: dict | None = None) -> dict:
     """grasshopper_import.py (+ <site>.3dm when rhino3dm is installed) into run/rhino/."""
     from .layout import open_run
 
@@ -431,7 +442,8 @@ def write_rhino(run_dir: Path, cfg: Config, origin, z0: float | None, log=print,
     cell = float(cfg["field"]["cell_size_m"])
     files = {("all" if f.stem == "vector_field" else f.stem.replace("vector_field_", "")): f
              for f in sorted(run.houdini.glob("vector_field*.csv"))
-             if not f.stem.startswith("vector_field_slices")}
+             if not f.stem.startswith("vector_field_slices")
+             and f.stem != "vector_field_master"}       # a Live pass's copy of "all" (live_pass_export.py)
     dur = float(points["time_s"].max() - points["time_s"].min()) if len(points) else 0.0
     out = {"grasshopper": write_grasshopper_script(run.rhino / "grasshopper_import.py",
                                                    run.points, files, origin, z0, cfg, cell, dur)}
@@ -444,6 +456,6 @@ def write_rhino(run_dir: Path, cfg: Config, origin, z0: float | None, log=print,
     if len(fields) > 1:
         fields.pop("all", None)          # one field per group is enough in the .3dm
     out["3dm"] = write_3dm(run.rhino / f"{cfg.site}.3dm", points, fields, origin, z0, cfg,
-                           cell, cameras, outlines, title or cfg.site)
+                           cell, cameras, outlines, title or cfg.site, by_camera=by_camera)
     log(f"rhino: {out['3dm'].name} + grasshopper_import.py -> {run.rhino}")
     return out

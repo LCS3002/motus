@@ -107,7 +107,7 @@ DEFAULTS: dict[str, Any] = {
         "max_range_m": None,
     },
     "cleaning": {
-        "min_track_s": 1.0,
+        "min_track_s": 0.0,       # 0 keeps short pieces, as Live does; > 0 drops them as flickers
         "max_gap_s": 2.0,         # gaps longer than this split a track instead of interpolating
         "stitch": True,           # re-link tracks broken by occlusion, in ground coordinates
         "stitch_max_gap_s": 2.0,

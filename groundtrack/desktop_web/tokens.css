@@ -1,0 +1,82 @@
+/* motus, direction A "drafting black": the one source of the look (app.css, the Live view).
+   A drawing sheet in negative: pure black, no panel fills, every division a hairline, mono
+   labels, construction cues (registration crosses, dimension ticks, dotted guides), a pick box
+   around what is selected, square corners. From the portfolio: Geist + Spline Sans Mono,
+   22 % hairlines, 16 / 20 px margins, its eases.
+   Colour only where it means something: yellow / red for states, violet only for the
+   interference (the controller and the virtual camera). Orange #f39200 is the lacuna's:
+   never in the interface.
+   Fonts (SIL OFL 1.1, licences beside them in fonts/): Geist, Spline Sans Mono. The urls are
+   relative to this file, so any page that links it gets the fonts. */
+
+@font-face { font-family: "Geist"; src: url("fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: block; }
+@font-face { font-family: "Spline Sans Mono"; src: url("fonts/SplineSansMono-Variable.woff2") format("woff2"); font-weight: 300 700; font-display: block; }
+
+:root {
+  color-scheme: dark;
+
+  /* ---- colour */
+  --bg: #000;
+  --fg: #fff;
+  --fg-2: rgb(255 255 255 / 0.72);          /* secondary text */
+  --muted: rgb(255 255 255 / 0.5);          /* labels, subs */
+  --faint: rgb(255 255 255 / 0.32);         /* disabled, placeholders */
+  --rule: color-mix(in srgb, currentColor 22%, transparent);   /* the one hairline */
+  --rule-soft: color-mix(in srgb, currentColor 12%, transparent);
+  --line: rgb(255 255 255 / 0.22);          /* the hairline where currentColor is not white */
+  --guide: #5c5c5c;                          /* construction lines, dotted */
+  --cross: rgb(255 255 255 / 0.55);         /* registration crosses where rules meet */
+  --hover: rgb(255 255 255 / 0.04);         /* the only fill: a row under the pointer */
+  --press: rgb(255 255 255 / 0.08);
+  --select: #fff;                            /* the pick box around the selected row */
+  --sheet: #000;                             /* drawers, dialogs, menus: black with a hairline */
+  --scrim: rgb(0 0 0 / 0.66);
+  --placeholder: #0b0b0b;                    /* an image not loaded yet */
+  /* states: text colour only, never a filled badge */
+  --ok: #fff;
+  --warn: #e5cf6a;                           /* yellow, kept well away from the lacuna orange */
+  --bad: #f0606f;
+  --info: #9fb8ff;
+  /* fixed meanings */
+  --violet: #4b2e83;                         /* the interference: controller + virtual camera */
+  --violet-line: #9b82d9;                    /* the same hue, light enough for lines on black */
+  --violet-fill: rgb(75 46 131 / 0.22);
+  --lacuna: #f39200;                         /* reserved: never in the interface */
+
+  /* ---- type: two families, six styles */
+  --font-sans: "Geist", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Spline Sans Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --t-label: 500 10.5px/14px var(--font-mono);   /* UPPERCASE, +0.02em: labels, tabs, buttons */
+  --t-mono: 400 11px/16px var(--font-mono);      /* paths, numbers, logs (normal case) */
+  --t-body: 500 12px/16px var(--font-sans);      /* names, rows, text */
+  --t-text: 400 13px/19px var(--font-sans);      /* sentences: hints, notes, dialogs */
+  --t-title: 400 22px/24px var(--font-sans);     /* UPPERCASE, -0.03em: panel titles */
+  --t-num: 400 28px/28px var(--font-sans);       /* -0.03em: stats */
+  --t-display: 500 48px/44px var(--font-sans);   /* UPPERCASE, -0.045em: the site's name */
+  --tracking-label: 0.02em;
+  --tracking-title: -0.03em;
+  --tracking-display: -0.045em;
+
+  /* ---- grid + space */
+  --margin: 16px;
+  --gutter: 20px;
+  --cols: 12;
+  --bar-h: 44px;
+  --head-h: 44px;
+  --row-h: 28px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
+
+  /* ---- lines and corners */
+  --hair: 1px;
+  --tick: 5px;               /* dimension ticks, cross arms */
+  --radius: 0;               /* square everywhere; images too */
+
+  /* ---- motion (both sites) */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 140ms; --t: 240ms; --t-slow: 900ms;   /* hairlines draw in over --t-slow */
+}
+
+/* the label style, as a class */
+.label { font: var(--t-label); letter-spacing: var(--tracking-label); text-transform: uppercase; }

@@ -59,21 +59,21 @@ for (const ev of ["load", "error"]) {
 }
 
 Object.assign(ICON, {
-  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>',
-  target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>',
-  area: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 18 7 5l11 3 2 10z"/><circle cx="4" cy="18" r="1.6" fill="currentColor"/><circle cx="7" cy="5" r="1.6" fill="currentColor"/><circle cx="18" cy="8" r="1.6" fill="currentColor"/><circle cx="20" cy="18" r="1.6" fill="currentColor"/></svg>',
-  layers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>',
-  stack: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="7" width="14" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12"/></svg>',
-  swirl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 12a2 2 0 1 1 2-2c0 3-2.7 5-5.5 5S3.5 12.5 4 9.5C4.6 5.6 8 3 12 3c5 0 9 4 9 9s-4 9-9 9"/></svg>',
-  cube: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 2 9 5v10l-9 5-9-5V7z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg>',
-  folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
-  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
-  open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
-  stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
-  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
-  image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-11 9"/></svg>',
-  hammer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6 18 10M3 21l9-9M13 4l7 7-3 3-7-7z"/></svg>',
-  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l10.5-6.5z"/></svg>',
+  target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>',
+  area: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 18 7 5l11 3 2 10z"/></svg>',
+  layers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>',
+  stack: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="3" y="7" width="14" height="14"/><path d="M7 3h14v14"/></svg>',
+  swirl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 12a2 2 0 1 1 2-2c0 3-2.7 5-5.5 5S3.5 12.5 4 9.5C4.6 5.6 8 3 12 3c5 0 9 4 9 9s-4 9-9 9"/></svg>',
+  cube: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="m12 2 9 5v10l-9 5-9-5V7z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg>',
+  folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 5h6l2 2h10v13H3z"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13"/><path d="M16 8V3H3v13h5"/></svg>',
+  open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="6.5" y="6.5" width="11" height="11"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-11 9"/></svg>',
+  hammer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6 18 10M3 21l9-9M13 4l7 7-3 3-7-7z"/></svg>',
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M14 3H5v18h14V8z"/><path d="M14 3v5h5"/></svg>',
 });
 
 const STEPS = [
@@ -187,6 +187,7 @@ function checkChip(c) {
   const e = Math.abs(c.scale_error_pct ?? 0), k = e <= 10 ? "ok" : e <= 20 ? "warn" : "bad";
   return `<span class="chip ${k}" title="People would be ${c.implied_person_height_m} m tall under this calibration (${c.scale_error_pct > 0 ? "+" : ""}${c.scale_error_pct}%)">people ${(+c.implied_person_height_m).toFixed(2)} m</span>`;
 }
+const percent = (s) => { const m = /(\d{1,3}(?:\.\d+)?)\s*%/.exec(s || ""); return m ? Math.min(100, +m[1]) : null; };
 const isFocus = () => !!(STEPS.find((s) => s.id === A.step) || {}).focus && !!A.config;
 
 /* ------------------------------------------------------------------ lightbox */
@@ -302,18 +303,18 @@ function renderHero() {
   const s = A.site;
   if (!s) {
     const cal = A.sites.filter((x) => x.calibrated).length, runs = A.sites.reduce((n, x) => n + (x.runs || 0), 0);
-    el.innerHTML = `<div><div class="hero-label">Project</div><div class="hero-value">${esc(base(A.root) || "groundtrack")}</div></div>
-      <div class="stats">${stat("Sites", A.sites.length)}${stat("Calibrated", cal, "var(--neon)")}${stat("Runs", runs)}</div>
+    el.innerHTML = `<div style="min-width:0"><div class="hero-label">Project</div><div class="hero-value">${esc(base(A.root) || "motus")}</div></div>
+      <div class="stats">${stat("Sites", A.sites.length)}${stat("Calibrated", cal)}${stat("Runs", runs)}</div>
       <div class="actions">${act("new-site", ICON.plus, "New site", true)}</div>`;
     bindActs(el); return;
   }
   const v = s.video || {}, c = s.calibration || {}, last = (s.runs || [])[0];
-  el.innerHTML = `<div style="min-width:0"><div class="hero-label"><span class="chip">${esc(famLabel(family(s.name)))}</span>${esc(s.config)}</div><div class="hero-value" title="${esc(s.name)}">${esc(s.name)}</div></div>
+  el.innerHTML = `<div style="min-width:0"><div class="hero-label"><span class="chip">${esc(famLabel(family(s.name)))}</span><span class="mono">${esc(s.config)}</span></div><div class="hero-value" title="${esc(s.name)}">${esc(s.name)}</div></div>
     <div class="stats">
-      ${stat("Clip", v.ok ? dur(v.duration_s) : "missing", v.ok ? "var(--ink)" : "var(--red)", v.ok ? `${v.width}×${v.height} · ${(+v.fps).toFixed(0)} fps` : "")}
-      ${stat("Calibration", c.ok ? `${(+c.rmse_m).toFixed(2)} m` : "not yet", "var(--blue)", "", c.ok ? rmseClass(c.rmse_m) : "warn")}
-      ${stat("Tracks", last && last.n_tracks != null ? last.n_tracks.toLocaleString("en-GB") : "–", "var(--neon)")}
-      ${stat("Runs", (s.runs || []).length, "var(--amber)")}
+      ${stat("Clip", v.ok ? dur(v.duration_s) : "missing", v.ok ? `${v.width}×${v.height} · ${(+v.fps).toFixed(0)} fps` : "", v.ok ? "" : "bad")}
+      ${stat("Calibration", c.ok ? (c.rmse_m != null ? (+c.rmse_m).toFixed(2) : "–") : "not yet", c.ok ? "RMSE" : "", c.ok ? rmseClass(c.rmse_m) : "warn", c.ok ? "m" : "")}
+      ${stat("Tracks", last && last.n_tracks != null ? last.n_tracks.toLocaleString("en-GB") : "–")}
+      ${stat("Runs", (s.runs || []).length)}
     </div>
     <div class="actions">
       ${act("run", ICON.play, "Run", true)}${act("calibrate", ICON.target, "Calibrate")}${act("area", ICON.area, "Area")}
@@ -321,8 +322,8 @@ function renderHero() {
     </div>`;
   bindActs(el);
 }
-function stat(label, value, dot, title = "", cls = "") {
-  return `<div title="${esc(title)}"><div class="stat-label">${dot ? `<i style="background:${dot}"></i>` : ""}${esc(label)}</div><div class="stat-value ${cls}">${esc(value)}</div></div>`;
+function stat(label, value, title = "", cls = "", unit = "") {
+  return `<div class="stat" title="${esc(title)}"><div class="stat-label">${esc(label)}</div><div class="stat-value ${cls}">${esc(value)}${unit ? `<small>${esc(unit)}</small>` : ""}</div></div>`;
 }
 function act(id, icon, label, primary) {
   return `<button class="act${primary ? " primary" : ""}" data-act="${id}"><span class="act-ic">${icon}</span>${esc(label)}</button>`;
@@ -358,8 +359,8 @@ function defaultStep() {
 function renderSteps() {
   const el = $("#steps");
   if (!A.config) { el.innerHTML = ""; return; }
-  const back = isFocus() ? `<button class="btn sm white back" id="back">← Back</button><span class="chip ink" style="margin-right:8px">${esc(A.site ? A.site.name : "")}</span>` : `<span class="steps-label">Workflow</span>`;
-  el.innerHTML = back + STEPS.map((s, i) => `${i ? '<span class="step-sep"></span>' : ""}<button class="step ${s.id === A.step ? "current" : stepDone(s.id) ? "done" : ""}" data-step="${s.id}"><span class="step-n">${stepDone(s.id) && s.id !== A.step ? "✓" : s.id}</span>${esc(s.label)}</button>`).join("");
+  const back = isFocus() ? `<span class="lead"><button class="btn sm white back" id="back">← Back</button><span class="chip ink">${esc(A.site ? A.site.name : "")}</span></span>` : `<span class="steps-label">Workflow</span>`;
+  el.innerHTML = back + `<div class="chain">${STEPS.map((s) => `<button class="step ${s.id === A.step ? "current" : stepDone(s.id) ? "done" : ""}" data-step="${s.id}"><span class="step-n">${String(s.id).padStart(2, "0")}</span>${stepDone(s.id) && s.id !== A.step ? ICON.check : ""}${esc(s.label)}</button>`).join("")}</div>`;
   $$("[data-step]", el).forEach((b) => b.onclick = () => goto(+b.dataset.step));
   const bk = $("#back", el); if (bk) bk.onclick = () => goto(A.prevStep || 5);
 }
@@ -388,7 +389,7 @@ function renderSites() {
     `<li class="group">${esc(famLabel(f))} <span class="muted">${ss.length}</span></li>` + ss.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })).map((s) => {
       const [txt, cls] = s.error ? ["Config error", "bad"] : !s.video_ok ? ["No video", "bad"] : !s.map_ok ? ["No aerial", "warn"] : !s.calibrated ? ["Calibrate", "warn"] : !s.runs ? ["Ready", "info"] : [`${s.runs} run${s.runs === 1 ? "" : "s"}`, "ok"];
       const sub = s.error ? s.error : [s.camera ? "camera set" : "no camera", s.calibrated ? "calibrated" : "not calibrated"].join(" · ");
-      return `<li class="${fresh(`site:${s.config}`) ? "rise" : ""}" style="--i:${k++}"><button class="row ${s.config === A.config ? "sel" : ""}" data-config="${esc(s.config)}">
+      return `<li class="${fresh(`site:${s.config}`) ? "rise" : ""}" style="--i:${k++}"><button class="row ${s.config === A.config ? "sel" : ""}" data-config="${esc(s.config)}" title="${esc(sub)}">
         <span class="avatar c${hashIdx(f)}">${esc(initials(s.name))}</span>
         <span style="min-width:0"><span class="row-title">${esc(s.name)}</span><span class="row-sub">${esc(sub)}</span></span>
         <span class="row-end"><span class="st ${cls}">${txt}</span></span></button></li>`;
@@ -460,7 +461,7 @@ function viewSetup(el) {
     </div>
     <div class="btns"><button class="btn primary" id="p-save">Save paths</button><span class="hint">Writes <span class="mono">video:</span> and <span class="mono">geotiff:</span> into ${esc(base(s.config))}.</span><div class="grow"></div><button class="btn sm white" id="p-next">Next: camera →</button></div>
     <div class="card"><h3>Filming checklist</h3>
-      <div class="grid2" style="gap:6px 18px;font-size:13.5px;color:var(--ink-2)">
+      <div class="grid2 checklist">
         <span>• Tripod, locked off. A knock means re-calibrating.</span><span>• Stabilisation off (it shifts the frame).</span>
         <span>• Main 1× lens, no zoom, focus and exposure locked.</span><span>• Fixed frame rate (Auto FPS off).</span>
         <span>• Higher is better: a first-floor window beats the street.</span><span>• 6–8 sharp ground features visible on the aerial.</span>
@@ -594,6 +595,11 @@ async function viewResults(el) {
     el.innerHTML = head("Results") + `<div class="body"><div class="card"><h3>No runs yet</h3><p>Track the clip first.</p><div class="btns"><button class="btn neon" id="go-track">${ICON.play} Go to Track</button></div></div></div>`;
     $("#go-track").onclick = () => goto(5); return;
   }
+  try {                                          // back from the Live view: the run it was opened from
+    const back = JSON.parse(sessionStorage.getItem("gt.run") || "null");
+    sessionStorage.removeItem("gt.run");
+    if (back && back.config === A.config && runs.some((r) => r.name === back.run)) A.run = back.run;
+  } catch {}
   if (!A.run || !runs.some((r) => r.name === A.run)) A.run = runs[0].name;
   const seg = `<select id="run-pick" class="btn sm white" style="padding-right:10px">${runs.map((r) => `<option value="${esc(r.name)}" ${r.name === A.run ? "selected" : ""}>${esc(r.name)} · ${r.n_tracks ?? "–"} tracks · ${ago(r.mtime)}</option>`).join("")}</select>`;
   el.innerHTML = head("Results", "", seg) + `<div class="body" id="res"><div class="empty">Loading…</div></div>`;
@@ -619,18 +625,19 @@ async function viewResults(el) {
   })() : "";
   $("#res").classList.add("fade-in");
   $("#res").innerHTML = `
-    <div class="card"><div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+    <div class="card summary"><div style="display:flex;gap:28px;align-items:flex-end;flex-wrap:wrap">
       <div><div class="stat-label">Tracks</div><div class="big-rmse">${r.n_tracks != null ? r.n_tracks.toLocaleString("en-GB") : "–"}</div></div>
-      <div style="display:grid;gap:4px"><span class="hint">${esc(d.path)}</span><div class="btns">${checkChip(d.check)}${r.processed ? '<span class="chip ok">processed</span>' : '<span class="chip warn">tracked only</span>'}</div></div>
-      <div class="grow"></div><button class="btn sm white" data-folder="${esc(d.path)}">${ICON.folder} Open folder</button></div>
+      <div style="display:grid;gap:10px;min-width:0;flex:1"><span class="path">${esc(d.path)}</span><div class="btns">${checkChip(d.check)}${r.processed ? '<span class="chip ok">processed</span>' : '<span class="chip warn">tracked only</span>'}</div></div>
+      <button class="btn sm white" data-folder="${esc(d.path)}">${ICON.folder} Open folder</button></div>
       <div class="btns">
+        <span id="live-slot" hidden></span>
         <button class="btn sm" data-job="process" title="Stages 3–6 again (after a new calibration)">Process again</button>
         <button class="btn sm" data-job="package">Package images</button>
         <button class="btn sm" data-job="debug-video">Overlay video</button>
         <button class="btn sm" data-job="stabilize" title="For a handheld / moved camera">Stabilise</button>
         <button class="btn sm" data-job="rhino">${ICON.cube} Rhino model</button>
         <button class="btn sm" data-job="calibration-picture">Calibration picture</button>
-        <span class="btns" style="gap:4px"><button class="btn sm" data-job="process-sequence">Process sequence at</button><input id="seq-at" class="btn sm white" style="width:70px" type="number" value="2" step="0.5" min="0"> s</span>
+        <span class="btns"><button class="btn sm" data-job="process-sequence">Process sequence at</button><input id="seq-at" class="btn sm white" style="width:64px" type="number" value="2" step="0.5" min="0"><span class="hint">s</span></span>
       </div></div>
     ${plans.length ? `<div class="section-title">Plans <span class="chip">${plans.length}</span></div>${shots(plans)}` : ""}
     ${d.videos.length ? `<div class="section-title">Videos <span class="chip">${d.videos.length}</span></div>${shots(d.videos, "video")}` : ""}
@@ -642,7 +649,7 @@ async function viewResults(el) {
       ${d.houdini.length ? `<div class="card"><h3>Houdini <span class="chip">${d.houdini.length}</span></h3>${fileRows(d.houdini)}</div>` : ""}
       ${d.rhino.length ? `<div class="card"><h3>Rhino / Grasshopper <span class="chip">${d.rhino.length}</span></h3>${fileRows(d.rhino)}</div>` : ""}
     </div>
-    ${d.log_tail ? `<details class="card"><summary style="cursor:pointer;font-weight:600">Run log (last lines)</summary><pre class="log" style="margin-top:10px">${esc(d.log_tail.join("\n"))}</pre></details>` : ""}`;
+    ${d.log_tail ? `<details class="card"><summary>Run log (last lines)</summary><pre class="log" style="margin-top:10px">${esc(d.log_tail.join("\n"))}</pre></details>` : ""}`;
   const res = $("#res");
   const groups = { img: plans, video: d.videos, proc: d.process, extra: d.extras };
   $$("[data-g]", res).forEach((b) => b.onclick = () => lightbox(groups[b.dataset.g].map((p) => ({ path: p })), +b.dataset.i));
@@ -651,6 +658,16 @@ async function viewResults(el) {
     const kind = b.dataset.job, options = kind === "process-sequence" ? { at: +$("#seq-at").value || 2 } : {};
     startJob({ kind, config: A.config, run: A.run, options }, "Write anyway");
   });
+  // Live view (plans/live_controller/03): only for a run with a scene package (live/)
+  get(`/api/live/info?run=${enc(d.path)}`).then((li) => {
+    const slot = $("#live-slot");
+    if (!li.live || !slot || A.runDetail !== d) return;
+    slot.outerHTML = `<button class="btn sm primary" id="go-live" title="The clip in 3D, redrawn live by the phone or the mouse (F: full screen)">${ICON.play} Live</button>`;
+    $("#go-live").onclick = () => {
+      try { sessionStorage.setItem("gt.run", JSON.stringify({ config: A.config, run: A.run })); } catch {}
+      location.href = `/live?run=${enc(d.path)}`;
+    };
+  }).catch(() => {});
 }
 
 function bindFiles(el) {
@@ -676,7 +693,7 @@ async function viewCombine(el) {
         <label class="check"><input type="checkbox" id="cb-ok"> Only clips whose calibration check is ok</label>
         <div class="section-title">Clips</div>
         <div style="display:grid;gap:4px;max-height:44vh;overflow:auto">
-          ${[...fams.entries()].sort((a, b) => (b[0] === f) - (a[0] === f) || a[0].localeCompare(b[0])).map(([k, ss]) => `<div class="group" style="padding:6px 2px 2px">${esc(famLabel(k))}</div>` + ss.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })).map((s) => `<label class="check file" style="background:var(--surface)"><input type="checkbox" data-clip="${esc(s.config)}" ${k === f && s.calibrated && s.runs ? "checked" : ""} ${s.runs ? "" : "disabled"}> <span class="name">${esc(s.name)}</span><span class="st ${s.runs ? "ok" : "none"}">${s.runs ? (s.calibrated ? "calibrated" : "not calibrated") : "no run"}</span></label>`).join("")).join("")}
+          ${[...fams.entries()].sort((a, b) => (b[0] === f) - (a[0] === f) || a[0].localeCompare(b[0])).map(([k, ss]) => `<div class="group" style="padding:6px 2px 2px">${esc(famLabel(k))}</div>` + ss.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })).map((s) => `<label class="check file"><input type="checkbox" data-clip="${esc(s.config)}" ${k === f && s.calibrated && s.runs ? "checked" : ""} ${s.runs ? "" : "disabled"}> <span class="name">${esc(s.name)}</span><span class="st ${s.runs ? "ok" : "none"}">${s.runs ? (s.calibrated ? "calibrated" : "not calibrated") : "no run"}</span></label>`).join("")).join("")}
         </div>
         <div class="btns"><button class="btn neon" id="cb-go">${ICON.stack} Combine</button></div>
       </div>
@@ -761,7 +778,7 @@ async function viewExport(el) {
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:4px;max-height:200px;overflow:auto">${src.clips.map((c) => `<label class="check file"><input type="checkbox" data-kclip="${esc(c.path)}" ${family(c.site) === family(siteName) ? "checked" : ""}><span class="name">${esc(c.site)}</span><span class="st none">${esc(c.run)}</span></label>`).join("") || '<div class="hint">No clips with a vector field yet.</div>'}</div>
       <div class="fields" style="grid-template-columns:1fr auto"><label class="field">Kit folder<input id="k-out" value="${esc(`${A.root}\\runs\\houdini\\${siteName}`)}" spellcheck="false"></label><label class="field">&nbsp;<button class="btn sm" id="k-browse">Browse…</button></label></div>
       <label class="check"><input type="checkbox" id="k-nobuild"> Only the files (build the scene later, or add it to an open scene)</label>
-      <div class="btns"><button class="btn neon" id="k-go">${ICON.hammer} Build kit</button><span class="hint">Runs <span class="mono">groundtrack houdini-pop</span>; the scene is built with hython${H ? "" : " (Houdini not found: files only)"}.</span></div>` : '<p class="hint">Combine clips first (step 7): a kit is built from a combined plan. Combined plans in library folders are found too.</p>'}
+      <div class="btns"><button class="btn neon" id="k-go">${ICON.hammer} Build kit</button><span class="hint">Runs <span class="mono">motus houdini-pop</span>; the scene is built with hython${H ? "" : " (Houdini not found: files only)"}.</span></div>` : '<p class="hint">Combine clips first (step 7): a kit is built from a combined plan. Combined plans in library folders are found too.</p>'}
     </div>
 
     <div class="section-title">Rhino & Grasshopper</div>
@@ -858,13 +875,14 @@ function renderJobs() {
   const scroll = el.querySelector(".log");
   const atBottom = scroll ? scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 30 : true;
   el.innerHTML = A.jobs.map((j) => {
-    const cls = j.status === "running" ? "ok" : j.status === "done" ? "ok" : j.status === "failed" ? "bad" : "none";
+    const cls = j.status === "running" ? "running" : j.status === "done" ? "ok" : j.status === "failed" ? "bad" : "none";
+    const pct = j.status === "running" ? percent(j.last) : null;
     const open = j.id === A.openJob;
     const L = A.logs[j.id];
     return `<div class="job${fresh(`job:${j.id}`) ? " rise" : ""}"><div class="job-top" data-jid="${j.id}"><span class="avatar sm ${j.status === "failed" ? "c3" : j.status === "running" ? "c0" : "c5"}">${jobIcon(j.kind)}</span>
-      <span style="min-width:0"><span class="row-title" style="font-size:13.5px">${esc(j.label)}</span><span class="row-sub">${ago(j.started)} · ${elapsed(j)}</span></span>
-      <span class="st ${cls}">${j.status === "running" ? "running" : j.status}</span></div>
-      ${j.status === "running" ? `<div class="progress">${esc(j.last || "")}</div>` : ""}
+      <span style="min-width:0"><span class="row-title">${esc(j.label)}</span><span class="row-sub">${ago(j.started)} · ${elapsed(j)}</span></span>
+      <span class="st ${cls}">${j.status === "running" ? '<i class="sq"></i>running' : j.status}</span></div>
+      ${j.status === "running" ? `<div class="ruler${pct == null ? " indet" : ""}"><i${pct == null ? "" : ` style="width:${pct}%"`}></i></div><div class="progress">${esc(j.last || "")}</div>` : ""}
       ${open ? `<pre class="log">${L ? L.lines.slice(-500).map((x) => `<span class="${/error|Traceback|failed/i.test(x) ? "err" : /^saved |✓|done/i.test(x) ? "ok" : ""}">${esc(x)}</span>`).join("\n") : "Loading…"}</pre>
         <div class="btns">${j.status === "running" ? `<button class="btn xs danger" data-stop="${j.id}">${ICON.stop} Stop</button>` : ""}<button class="btn xs" data-copylog="${j.id}">${ICON.copy} Copy log</button></div>` : ""}</div>`;
   }).join("");
@@ -898,7 +916,7 @@ function renderSitePane() {
       <dt>Video</dt><dd>${s.video.ok ? `${s.video.width}×${s.video.height}, ${dur(s.video.duration_s)}` : '<span class="st bad">missing</span>'}</dd>
       <dt>Aerial</dt><dd>${s.map.ok ? "found" : '<span class="st bad">missing</span>'}</dd>
       <dt>Camera</dt><dd class="num">${cp ? `E ${cp.E}, N ${cp.N}, ${cp.height_m} m up` : '<span class="st warn">not set</span>'}</dd>
-      <dt>Calibration</dt><dd>${c.ok ? `<span class="st ${rmseClass(c.rmse_m) === "good" ? "ok" : rmseClass(c.rmse_m) === "warn" ? "warn" : "bad"}">${(+c.rmse_m).toFixed(2)} m RMSE</span> · ${c.n_points} pairs` : '<span class="st warn">not yet</span>'}</dd>
+      <dt>Calibration</dt><dd>${c.ok ? `<span class="st ${rmseClass(c.rmse_m) === "good" ? "ok" : rmseClass(c.rmse_m) === "warn" ? "warn" : "bad"}">${c.rmse_m != null ? (+c.rmse_m).toFixed(2) : "–"} m RMSE</span> · ${c.n_points} pairs` : '<span class="st warn">not yet</span>'}</dd>
       <dt>Area</dt><dd>${s.roi ? "outlined" : "whole frame"}</dd>
       <dt>Runs</dt><dd>${(s.runs || []).length}</dd></dl>
       <div class="btns"><button class="btn xs white" data-folder="${esc(s.config_path)}">${ICON.folder} Config folder</button></div></div>

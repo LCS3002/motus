@@ -126,6 +126,31 @@ def test_http_guards(project):
         srv.server_close()
 
 
+def test_json_sends_infinity_and_nan_as_null(project, monkeypatch):
+    """The browser's JSON.parse refuses Infinity / NaN (e.g. the RMSE of an exact 5-pair
+    homography): they go out as null and the rest is unchanged."""
+    app = App(project)
+    real = app.sites
+    monkeypatch.setattr(app, "sites", lambda: [
+        {**s, "rmse_m": float("inf"), "errs": [float("nan"), 1.5], "t": (float("-inf"), 2)} for s in real()])
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), None)
+    port = srv.server_address[1]
+    srv.RequestHandlerClass = make_handler(app, port)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def strict(c):
+        raise ValueError(f"{c} is not JSON")
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/sites") as r:
+            s = json.loads(r.read(), parse_constant=strict)["sites"][0]
+        assert s["rmse_m"] is None and s["errs"] == [None, 1.5] and s["t"] == [None, 2]
+        assert s["name"] == "plaza9"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 def test_combined_plans_are_listed_and_combining_is_guarded(project):
     app = App(project)
     assert app.composites() == []

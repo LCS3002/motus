@@ -181,11 +181,14 @@ def test_process_tracks_end_to_end(cam, ground_points, cfg):
     h = fit_homography(cam.ground_to_pixel(ground_points), ground_points)
     raw = _synthetic_raw(cam, [
         (1, "person", (-5, 10), (1.4, 0.0), 150, set(range(60, 75))),  # occluded 0.5 s
-        (2, "person", (5, 30), (0.0, -1.0), 15, set()),               # 0.5 s: too short
+        (2, "person", (5, 30), (0.0, -1.0), 15, set()),               # 0.5 s: short, kept
         (3, "car", (-20, 40), (25.0, 0.0), 45, set()),
     ])
     points, summary = process_tracks(raw, cfg, h, FPS, 1, log=lambda *_: None)
-    assert set(summary["track_id"]) == {1, 3}
+    assert set(summary["track_id"]) == {1, 2, 3}       # min_track_s 0: short pieces stay, as in Live
+    cfg.data["cleaning"]["min_track_s"] = 1.0
+    assert set(process_tracks(raw, cfg, h, FPS, 1, log=lambda *_: None)[1]["track_id"]) == {1, 3}
+    cfg.data["cleaning"]["min_track_s"] = 0.0
     p1 = points[points["track_id"] == 1]
     assert abs(p1["speed"].iloc[10:-10].mean() - 1.4) < 0.02
     assert p1["predicted"].sum() == 15
