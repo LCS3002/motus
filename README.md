@@ -1,15 +1,118 @@
-# groundtrack
+<p align="center">
+  <img src="docs/img/motus_hero.jpg" alt="motus: oblique video to movement in plan" width="100%">
+</p>
 
-Turns oblique video, filmed from a fixed tripod or window, into accurate top-down movement
-data: tracks in metres in **British National Grid (EPSG:27700)**. The output is ready for QGIS
-(maps) and Houdini (particles and paths). Everything runs locally.
+**motus** (*mōtus*, Latin for motion) turns oblique video, filmed from a tripod or a window, into
+movement in plan. It finds every person and vehicle, puts them on the ground in metres in British
+National Grid (EPSG:27700), and gives you tracks, speeds, flow fields and densities for QGIS, Rhino,
+Grasshopper and Houdini. Its live mode makes phones the camera: as a phone turns, the machine
+redraws every track as if the camera had moved. Everything runs locally.
 
-| tracks over the map (`topdown.png`) | smoothed flow field (`flow_field.png`) | animated (`topdown.mp4`) |
-|---|---|---|
-| ![topdown](docs/img/topdown.jpg) | ![flow field](docs/img/flow_field.jpg) | ![animation](docs/img/topdown_video.jpg) |
+The command is `motus`; `groundtrack` works too (the same command). The Python package keeps the
+code name `groundtrack`.
 
-*Images from the synthetic demo (`groundtrack demo`): two people walking at known speeds, one
-of them behind a pillar (white dotted = tracker prediction through the occlusion).*
+[Install](#install) · [Quick start](#quick-start) · [Pipeline](#the-pipeline) ·
+[motus live](#motus-live) · [Exports](#exports) · [Privacy](#privacy) · [Reference](#reference) ·
+[Licence](#licence)
+
+<p align="center">
+  <img src="docs/img/motus_ecosystem.png" alt="The motus ecosystem: sources (video, ground points, lens, site config, OpenStreetMap, terrain, aerial) feed motus; motus feeds Rhino, QGIS, Grasshopper, Houdini and motus live (hub, phone page, Live view, sessions, performance sheet)" width="100%">
+</p>
+<sub>Sources on the left, the six stages in the middle, the tools and motus live on the right.
+Building outlines in the small drawings: © OpenStreetMap contributors.</sub>
+
+---
+
+## What you get
+
+<p align="center">
+  <img src="docs/img/demo_plans.jpg" alt="Three plans of the synthetic demo: tracks coloured by speed, the flow field, the density" width="100%">
+</p>
+<sub>All pictures here come from the built-in synthetic demo (<code>motus demo</code>): two
+synthetic walkers at known speeds on a generated plaza, one passing behind a pillar (dotted: the
+tracker's prediction through the occlusion). Speed ramp 0–2.5 m/s.</sub>
+
+<p align="center">
+  <img src="docs/img/demo_live.jpg" alt="The Live view of the demo: the plan redrawn as the virtual camera turns" width="100%">
+</p>
+<sub>motus live on the same demo, video off: the virtual camera (violet) turned 22° from the start
+camera (grey). The machine redraws one walk where its start calibration now puts it (blue; thin
+grey: where it really was); the other walk has left the view and is lost.</sub>
+
+Each run writes one folder, `runs/<site>/<run>/`:
+
+| folder | what is in it |
+|---|---|
+| `images/` | frameless plans (tracks, flow field, density, aerial) and their transparent layers, all on one extent, for layouts |
+| `labels/` | legends, scale bar and north arrow on their own, light and dark |
+| `videos/` | the tracks building up over the map, particles streaming through the field; the overlay on the video on request (people blurred) |
+| `data/` | `points.csv` (every sample: x, y, vx, vy, speed, heading, predicted), `tracks.geojson`, `predicted_gaps.geojson`, `field_grid.csv`, metrics and statistics |
+| `houdini/` | import scripts and the CSVs they read: points, tracks, vector fields |
+| `rhino/` | `<site>.3dm` and `grasshopper_import.py` |
+| `extras/` | the maps with legends, at 300 dpi |
+| `_working/` | tracker output, config and calibration snapshot, run log |
+
+Every file and column is listed in the [reference](#reference) (§5).
+
+---
+
+## Install
+
+Python 3.10–3.12, in a virtual environment. PyTorch is installed first, for your machine.
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\activate
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128   # NVIDIA GPU
+pip install -e ".[dev]"
+motus device           # -> selected device: cuda:0, GPU: NVIDIA GeForce RTX ...
+```
+
+* **RTX 50-series (Blackwell)** cards need CUDA 12.8 or newer; `cu128` is a safe choice for any recent card.
+* **Apple Silicon (M1–M4):** `pip install torch torchvision` (the default macOS wheels include MPS).
+* **CPU only:** use the `cpu` index (`--index-url https://download.pytorch.org/whl/cpu`). It works,
+  at a few frames per second: use `vid_stride: 2` and `yolo26s.pt`.
+* **Extras:** `pip install -e ".[dev,app,live]"`. `app` gives the desktop window (pywebview; without
+  it the app opens in the browser), `live` the phone controller's hub.
+
+`device: auto` in a site config picks cuda → mps → cpu. If you ask for `cuda` or `mps` and it is
+not there, the tool stops rather than running for hours on the CPU. YOLO weights download into
+`models/` on first use.
+
+## Quick start
+
+```powershell
+motus demo --out demo_site       # synthetic site: camera, GeoTIFF, video; calibrated and run
+motus app --root demo_site       # the desktop app on that project folder
+```
+
+The demo builds a virtual camera, a GeoTIFF and a video of two people walking at known speeds, one
+passing behind a pillar, then calibrates and runs the whole pipeline. Results are in
+`demo_site/runs/demo/demo/`.
+
+Your own site, from the project folder (the one with `sites/` and `runs/`):
+
+```powershell
+motus init plaza --template plaza                    # writes sites/plaza.yaml (or --template motorway)
+motus locate "<place name>" -c sites/plaza.yaml --write   # where the camera stood (OpenStreetMap)
+motus calibrate -c sites/plaza.yaml                  # 6–8 point pairs, video <-> aerial
+motus run -c sites/plaza.yaml                        # track, project, clean, export, draw
+```
+
+**The desktop app** (`motus app`) does the same in one window: footage and aerial, where the
+camera stood, calibration by clicking pairs (live fit, errors per pair, a ground grid in the video),
+the area to track, runs with live logs, results, combined plans, and the hand-over to Houdini and
+Rhino / Grasshopper. Saving a calibration runs `motus calibrate` with the clicked pairs, and
+every file it replaces is copied to `backup/` first. `motus app --shortcut` adds Desktop and
+Start-menu shortcuts. **`motus ui`** is the lighter option: a local web page with a button for
+every command.
+
+How to film (tripod, stabilisation off, the 1× lens, a fixed frame rate) and the calibration
+walkthrough are in the [reference](#reference).
+
+---
+
+## The pipeline
 
 ```
 video ──► 1 DETECT + TRACK ──► raw_tracks.csv          (YOLO26 + ByteTrack / BoT-SORT)
@@ -25,61 +128,117 @@ GeoTIFF ─► 2 CALIBRATE (once per site) ──► homography.json   (6–8 cl
                                 scale bar, north arrow) · videos/ (with and without labels)
 ```
 
-Everything runs from the command line, from a small local web page (`groundtrack ui`), or from
-the desktop app, which also does the calibration and hands results to Houdini and Grasshopper
-(`groundtrack app`, §4).
+Detection is the slow part. After changing cleaning, grid, statistics or visual settings, re-run
+only stages 3–6 with `motus process -c <site>.yaml --run latest`.
+
+| command | what it does |
+|---|---|
+| `device` | which PyTorch device will be used |
+| `init` | a new site config from a template (`plaza`, `motorway`) |
+| `demo` | build a synthetic site and run the whole pipeline |
+| `locate` | camera position from a place name (OpenStreetMap) |
+| `calibrate` | pick ground points, fit and save the homography |
+| `autocalibrate` | calibrate without clicking (same spot as a calibrated clip, or vehicles on roads) |
+| `lens-calibrate` | checkerboard lens calibration (optional) |
+| `roi` | draw the area to track on the video |
+| `run` | the full pipeline: track, process, exports, visuals |
+| `track` | stage 1 only: detect and track → `raw_tracks.csv` |
+| `process` | stages 3–6 on an existing run (fast re-run) |
+| `stabilize` | camera motion for an existing run (handheld footage) |
+| `composite` | several clips of one place on one plan |
+| `package` | frameless images, labels and metrics for a run |
+| `debug-video` | the overlay video for an existing run (people blurred) |
+| `privacy` | detect every person and vehicle of an older run, for blurring |
+| `calibration-picture` | the calibration of a run as a picture |
+| `process-sequence` | the whole process at one moment, panel by panel |
+| `groundtruth` | check accuracy on a walk along a known line |
+| `rhino` | Rhino `.3dm` and the Grasshopper script for a run |
+| `houdini-pop` | a Houdini particle scene: a site's combined field and each clip's field as modules |
+| `houdini-build` | build the scene of an existing Houdini kit |
+| `ui` / `app` | the local web page / the desktop app |
+| `live-export` | the scene package of a processed run for the Live view |
+| `live-hub` | the phone controller's hub on its own (Live in the app starts it) |
+| `live-sheet` | a saved pass's performance sheet |
+| `live-pass-export` / `live-layers-export` | a saved pass / the Live collage's layers, as a run |
+
+Every command takes `--help`. Every option of a site config, with comments, is in
+`groundtrack/config.py` (`DEFAULTS`).
 
 ---
 
-## 1. Install
+## motus live
 
-You need Python 3.10–3.12. Use a virtual environment.
-
-### Windows / Linux + NVIDIA GPU
-
-Install the CUDA build of PyTorch. RTX 50-series (Blackwell) cards need **CUDA 12.8 or
-newer**, so `cu128` is a safe choice for any recent card:
+The phone becomes the camera. While a tracked clip plays, turning the phone makes the machine
+redraw every track as if the camera had moved. It keeps its start calibration, so a pan swirls the
+plan about the camera, tilting pulls far ground in or throws it out past the horizon, and a roll
+skews it. Whatever leaves the virtual view is lost: a machine gap, authored live.
 
 ```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\activate
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-pip install -e ".[dev]"
-groundtrack device        # -> selected device: cuda:0, GPU: NVIDIA GeForce RTX ...
+pip install -e ".[live]"
+motus live-export runs/<site>/<run>     # scene package: camera, terrain, aerial, tracks, blurred video
+motus app                               # open Live from the run; phones scan the QR code
 ```
 
-### Apple Silicon (M1–M4)
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install torch torchvision          # the default macOS wheels include MPS
-pip install -e ".[dev]"
-groundtrack device                     # -> selected device: mps
-```
-
-### CPU only
-
-`pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`, then
-`pip install -e ".[dev]"`. This works, but expect a few frames per second. Use `vid_stride: 2` and
-`yolo26s.pt`.
-
-`device: auto` in a site config picks **cuda → mps → cpu**. If you ask for `cuda` or `mps`
-explicitly and it isn't available, the tool stops with an error rather than quietly running for
-hours on the CPU. YOLO weights download into `models/` on first use.
-
-### Try it without footage
-
-```powershell
-groundtrack demo --out demo_site
-```
-
-This builds a synthetic site: a virtual camera, a GeoTIFF, a video of two people walking at
-known speeds, one of them passing behind a pillar. It then calibrates and runs the whole
-pipeline. Look in `demo_site/runs/demo/demo/`.
+* **The phone:** a web page, nothing to install. It reads turn, tilt and roll at about 60 Hz, with
+  zero, level and gain (0.1–3×). Holding SPACE turns the space itself in 3D.
+* **1–4 phones:** each player takes a camera of the site, on one shared clock. The view grows with
+  the cameras in play.
+* **Passes:** one play-through of the clock is a pass. It is saved by itself under
+  `<run>/live/passes/<id>/` with the moves, the presses and the machine's counts. Replay it exactly,
+  stack or undo passes, or render one to an MP4.
+* **Sheets:** `motus live-sheet <run> <id>` draws the finished drawing (view, plan,
+  sections) over a score of how it was played, as PDF and PNG, black or light.
+* **Exports:** `motus live-pass-export <run> <id> --rhino --houdini` writes what the machine
+  drew as a run (points, GeoJSON, the camera path, Houdini curves and field, Rhino, a POP kit), so
+  the tools below take it like any other run.
+* **Privacy:** only poses and button presses travel, over the local network (HTTPS + WSS, a pairing
+  code, a self-signed certificate). Video never crosses the link, and the Live view only ever shows
+  the blurred video.
 
 ---
 
-## 2. Filming
+## Exports
+
+* **QGIS:** drag in `tracks.geojson`; it carries its CRS. Add `points.csv` or `field_grid.csv` as a
+  delimited text layer (X = `x` / `cell_x`, Y = `y` / `cell_y`, EPSG:27700).
+* **Rhino 8 and Grasshopper:** `rhino/<site>.3dm` holds a `groundtrack` layer tree with the tracks
+  coloured by speed, speed segments, samples, field arrows and cameras, each with its numbers as user
+  text. `grasshopper_import.py` goes into a Python 3 Script component: a time slider gives everyone's
+  position and velocity at that moment, plus the flow field for agent or particle sims.
+* **Houdini:** `houdini_import.py` (points and one polyline per track, with `v` and `Cd`) and
+  `houdini_field.py` (the vector field as volumes for POP Advect by Volumes, as points, or as
+  sources and sinks). `motus houdini-pop` builds a ready particle scene per site, one module
+  per clip plus the combined field.
+* **Composites:** `motus composite sites/<site>*.yaml -o results/<name> --title "<title>"` puts
+  several clips of one place on one plan, with the same images, data and scripts.
+
+Coordinates are metres from the run's origin (British National Grid E / N stored with them); with a
+terrain model, heights are above the origin. Details in the [reference](#reference).
+
+---
+
+## Privacy
+
+* **Only box coordinates are stored.** No face crops, no images of people, no appearance
+  embeddings, no identities. ReID is off; track IDs are arbitrary numbers within one video.
+* **Blurred by default.** The overlay video is off by default; when rendered, people and number
+  plates are blurred. Blurring uses every detection, not only the tracks, and holds each box for
+  0.25 s so a face does not flash in a missed frame. Look through a video before sharing it.
+* **Live sends no video.** The phone link carries only poses and button presses; the Live view's
+  video is blurred.
+* **Delete the raw footage** once the run is checked, including the phone's copies and its cloud
+  backup. `points.csv`, `tracks.geojson` and the rest hold everything the research needs.
+* Footage, runs and site data stay out of this repository. If footage may show identifiable people,
+  follow your institution's ethics and data-protection guidance (UK GDPR).
+
+---
+
+## Reference
+
+Click a section to open it. The § numbers in the text refer to these sections; §1 is [Install](#install).
+
+<details>
+<summary><b>§2 Filming</b></summary>
 
 * **Tripod, locked off.** The homography only holds while the camera doesn't move. Even a slight
   knock means you have to re-calibrate.
@@ -98,11 +257,12 @@ pipeline. Look in `demo_site/runs/demo/demo/`.
 * Record the GeoTIFF area generously, and make sure the ground you film has **6–8 sharp,
   identifiable features** that are also visible on the map (§3.1).
 
----
+</details>
 
-## 3. Calibration walkthrough (once per site)
+<details>
+<summary><b>§3 Calibration walkthrough (once per site)</b></summary>
 
-### 3.1 Make the georeferenced top-down image
+#### 3.1 Make the georeferenced top-down image
 
 The map must be a **north-up GeoTIFF in EPSG:27700**.
 
@@ -118,20 +278,20 @@ joints, lamp-post bases. The point is where the object **meets the ground**, nev
 post. Spread them over the **whole** area you care about, near and far, left and right. Don't put
 them all in a line.
 
-### 3.2 Set up the site
+#### 3.2 Set up the site
 
 Your site configs live in `sites/` (kept out of git). `examples/` has commented ones for a
 plaza, a motorway, and a per-clip file that extends a shared site config.
 
 ```powershell
-groundtrack init plaza --template plaza          # writes sites/plaza.yaml
-groundtrack init motorway --template motorway    # writes sites/motorway.yaml
+motus init plaza --template plaza          # writes sites/plaza.yaml
+motus init motorway --template motorway    # writes sites/motorway.yaml
 ```
 
 Copy the video to `footage/plaza.mp4` and the GeoTIFF to `maps/plaza.tif`, or edit the paths
 in the YAML. Paths are relative to the YAML file.
 
-### 3.3 Tell it where you stood (strongly recommended)
+#### 3.3 Tell it where you stood (strongly recommended)
 
 If you know roughly where the camera was, put it in the site config:
 
@@ -171,7 +331,7 @@ plaza, this was the difference between calibrations that would not converge and 
 the most readable check for oblique views.
 
 **A picture of the calibration, to show the process:**
-`groundtrack calibration-picture -c sites/clip.yaml --run v1` (or "Calibration picture" in the
+`motus calibration-picture -c sites/clip.yaml --run v1` (or "Calibration picture" in the
 UI). It writes `images/calibration.png` with three panels: the video frame with the clicked
 points and a 2 m ground grid, the aerial with the same points, grid and the camera's view, and
 the video laid onto the aerial. Each panel is also saved on its own, and the caption is a
@@ -179,7 +339,7 @@ separate label. People are blurred: the tracked ones, plus anyone a full-resolut
 finds on that still.
 
 **The whole process at one moment:**
-`groundtrack process-sequence -c sites/clip.yaml --run v1 --at 2` (or "Process sequence" in the
+`motus process-sequence -c sites/clip.yaml --run v1 --at 2` (or "Process sequence" in the
 UI) writes one image per step to `images/process/`:
 
 | Image | Step |
@@ -221,18 +381,18 @@ give `height_m` with a generous `height_tol_m`. Credit on the plate: added autom
 **Don't know the coordinates?** Look the place up on OpenStreetMap:
 
 ```powershell
-groundtrack locate "Urbanest Canary Wharf" --floor 43 -c sites/motorway.yaml           # shows it
-groundtrack locate "Urbanest Canary Wharf" --floor 43 -c sites/motorway.yaml --write   # saves it
+motus locate "Urbanest Canary Wharf" --floor 43 -c sites/motorway.yaml           # shows it
+motus locate "Urbanest Canary Wharf" --floor 43 -c sites/motorway.yaml --write   # saves it
 ```
 
 It takes the building's centre, sets the tolerance to half its size (you may have stood anywhere
 in it) and the height to floor × 3.1 m + 1.5 m (`--height 4` to give it directly). Only the search
 text is sent to OpenStreetMap. The same search is in the UI.
 
-### 3.4 Or let it calibrate itself: `autocalibrate`
+#### 3.4 Or let it calibrate itself: `autocalibrate`
 
 ```powershell
-groundtrack autocalibrate -c sites/motorway7.yaml
+motus autocalibrate -c sites/motorway7.yaml
 ```
 
 It tries, in this order:
@@ -302,11 +462,11 @@ and that says almost nothing about the tilt. Those clips' own clicks are also we
 height and asks for 5+ points. **Filming tip: stand on steps, a wall or a first-floor window;**
 3–4 m of height makes both clicking and the automatic methods much more reliable.
 
-### 3.5 Pick the points
+#### 3.5 Pick the points
 
 ```powershell
-groundtrack calibrate --config sites/plaza.yaml            # first frame
-groundtrack calibrate --config sites/plaza.yaml --time 12  # or a frame with nobody in the way
+motus calibrate --config sites/plaza.yaml            # first frame
+motus calibrate --config sites/plaza.yaml --time 12  # or a frame with nobody in the way
 ```
 
 A window opens with the video frame on the left and the map on the right.
@@ -345,26 +505,26 @@ Outputs go to `calibration/`:
   markings and paving joints should line up. Anything above the ground (people, cars, walls)
   smears, and that's expected.
 
-Non-interactive alternative: `groundtrack calibrate --config ... --points-csv my_points.csv --no-gui`
+Non-interactive alternative: `motus calibrate --config ... --points-csv my_points.csv --no-gui`
 with columns `u,v,E,N` (for example ground control points you already have).
 
-### 3.6 Optional: lens undistortion
+#### 3.6 Optional: lens undistortion
 
 Only worth doing if straight kerbs look visibly bent near the frame edges. Print a checkerboard,
 and film or photograph it with the **same phone, lens and resolution** from 10–20 angles:
 
 ```powershell
-groundtrack lens-calibrate --source checker_video.mp4 --pattern 9x6 --square-mm 25 --out calibration/phone_1x_lens.json
+motus lens-calibrate --source checker_video.mp4 --pattern 9x6 --square-mm 25 --out calibration/phone_1x_lens.json
 ```
 
 Set `lens: ../calibration/phone_1x_lens.json` in the site YAML, then **re-run `calibrate`**: the
 picker then shows the undistorted frame. If the lens and homography don't match, the tool
 refuses to run.
 
-### 3.7 Optional: region of interest
+#### 3.7 Optional: region of interest
 
 ```powershell
-groundtrack roi --config sites/motorway.yaml
+motus roi --config sites/motorway.yaml
 ```
 
 Click a polygon around the useful ground and press Enter. Leave out the far, blurry end of the
@@ -372,7 +532,7 @@ road, the sky, reflections, and parked cars you don't want. Detections whose **f
 outside are ignored before tracking. The polygon is saved as `sites/<site>_roi.json` and
 picked up automatically. It is drawn on the calibration frame, so calibrate first.
 
-### 3.8 If the camera moved: `stabilize`
+#### 3.8 If the camera moved: `stabilize`
 
 A homography is only valid for the frame you clicked on. If the phone moved during the clip
 (handheld, a railing that flexes, a slowly creeping tripod), set
@@ -412,58 +572,14 @@ reference at all now counts as *moved* (a pan quickly leaves too little overlap)
 static camera. For a run tracked without it, there is no need to detect again:
 
 ```powershell
-groundtrack stabilize -c sites/clip.yaml --run v1     # camera motion from the saved run
-groundtrack process   -c sites/clip.yaml --run v1     # then rebuild the outputs
+motus stabilize -c sites/clip.yaml --run v1     # camera motion from the saved run
+motus process   -c sites/clip.yaml --run v1     # then rebuild the outputs
 ```
 
----
+</details>
 
-## 4. Running both sites
-
-**Prefer buttons?** `groundtrack ui` opens a local page in your browser (served from this
-computer only, nothing is uploaded). Pick a site, look up where you stood, open the point picker,
-start a run and watch its log, then browse every result: frameless images, label PNGs, metrics,
-videos, data, Houdini and Rhino files, each with a download link. Per run there are buttons for
-re-processing, redrawing images, the overlay video, the Rhino / Grasshopper files and
-*Stabilise camera motion*. **Combine clips** (top of the sidebar) puts several clips of one place
-on one plan (§5, `composite`); the combined plans are listed and browsable there too. Every
-button runs the same command as below.
-
-```powershell
-groundtrack ui                      # from the project folder (the one with sites/ and runs/)
-```
-
-**The desktop app** does the whole workflow in one window, step by step: footage and aerial,
-where the camera stood (place search or a click on the aerial), **calibration in the app** (click
-a point in the video frame, then on the aerial; the fit, its errors, a ground grid in the video
-and the camera's view on the aerial update with every pair; a loupe for precise clicks; drag
-points to move them), **the area to track** drawn on the frame, runs with live logs, results,
-combined plans, and the hand-over to **Houdini** (build a POP kit from a combined plan and open
-it, or copy the Python Shell line that adds it to the scene you have open; kits written by the
-Grasshopper plugin's Houdini Export are listed too) and **Rhino / Grasshopper** (open the models,
-copy the Grasshopper script, see whether the groundtrack-grasshopper plugin is installed). Saving a
-calibration runs `groundtrack calibrate --points-csv ... --no-gui` with the clicked pairs, so the
-result and its check images are the command line's own; every file it replaces is copied into a
-`backup/` folder first. It never writes into a Houdini or Rhino scene, and refuses to rebuild a
-kit's scene while Houdini is open.
-
-```powershell
-pip install -e ".[app]"             # pywebview: the native window (Edge WebView2 on Windows)
-groundtrack app                     # from the project folder
-groundtrack app --shortcut          # Desktop + Start-menu shortcuts that open it
-```
-
-On Windows the window has its own title bar (Snap and resizing work as usual; `--native-frame`
-keeps the Windows one). Without pywebview it opens in the browser. Folders with more kits, models
-and definitions (a results folder, say) are added under *Houdini & Grasshopper → Library
-folders*; that list is kept per user in `%APPDATA%\groundtrack\desktop.json`, outside the project.
-
-From the command line:
-
-```powershell
-groundtrack run --config sites/plaza.yaml
-groundtrack run --config sites/motorway.yaml
-```
+<details>
+<summary><b>§4 Running: several clips, settings, groups, vehicles, machine-made gaps</b></summary>
 
 **Several clips from different camera positions?** Each position needs its own calibration
 (and ROI). Keep the shared settings in one site file and add one small file per clip:
@@ -476,16 +592,16 @@ video: "C:/.../Motorway2.mov"
 homography: ../calibration/motorway2_homography.json
 ```
 
-Then `groundtrack calibrate -c sites/motorway2.yaml`, `groundtrack roi -c sites/motorway2.yaml`
-and `groundtrack run -c sites/motorway2.yaml`. Clips filmed from the *same* position can share a
+Then `motus calibrate -c sites/motorway2.yaml`, `motus roi -c sites/motorway2.yaml`
+and `motus run -c sites/motorway2.yaml`. Clips filmed from the *same* position can share a
 homography file.
 
 Each run writes a new folder, `runs/<site>/<YYYYmmdd-HHMMSS>/`. Detection is the slow part.
 After changing cleaning, grid, stats or visual settings, re-run only the fast stages:
 
 ```powershell
-groundtrack process --config sites/plaza.yaml --run latest      # or --run 20261007-153000
-groundtrack track   --config sites/plaza.yaml --max-frames 300  # quick look at the first 10 s
+motus process --config sites/plaza.yaml --run latest      # or --run 20261007-153000
+motus track   --config sites/plaza.yaml --max-frames 300  # quick look at the first 10 s
 ```
 
 Defaults that matter, with suggested values per site:
@@ -499,7 +615,7 @@ Defaults that matter, with suggested values per site:
 | `detection.track_buffer_s` | 1.5 | 1.0 | how long a lost object is predicted before it's dropped |
 | `groups.*.speed_range` | people 0–2.5 m/s | vehicles 0–35 m/s | colour ramp limits |
 | `groups.*.smooth_window_s` | 1.0 | 0.6 | longer = smoother, but sharp turns get rounded |
-| `cleaning.min_track_s` | 2.0 | 1.0 | drop flickers |
+| `cleaning.min_track_s` | 0 | 0 | 0 keeps short pieces (as Live does); > 0 drops shorter ones as flickers |
 | `grid.cell_size_m` | 1.0 | 2.0 | field_grid resolution |
 | `stats.count_lines` | entrances | one per carriageway | directional counts and flow/min |
 
@@ -508,7 +624,7 @@ Classes come from `groups`: each group lists its COCO classes (`person`, `bicycl
 ground offset, colour range). Remove a group to stop tracking it. Every option, with comments,
 is in `groundtrack/config.py` (`DEFAULTS`).
 
-### People and vehicles in one clip
+#### People and vehicles in one clip
 
 Every class goes into a group (`groups:` in the config) with its own speed range, smoothing
 and ground point (people: feet; vehicles: shifted to the vehicle centre). A config that lists
@@ -526,7 +642,7 @@ one where the tracks line up with the OpenStreetMap rail lines that are above gr
 underground lines are left out). On the DLR beside the A1261 the trains line up with the mapped
 rail at the calibrated surface itself, 2 m median.
 
-### Vehicle ground point (read this for the motorway)
+#### Vehicle ground point (read this for the motorway)
 
 The bottom-centre of a car's box is where the car's footprint is **closest to the camera**. That
 is not the car's centre. The tool offers two corrections:
@@ -543,13 +659,13 @@ is not the car's centre. The tool offers two corrections:
 The motorway template uses `travel`, as the brief asked. Switch it to `view` if you film both
 directions.
 
-### Machine-made gaps
+#### Machine-made gaps
 
 Every row in `points.csv` has a `source`, and anything other than `detected` has `predicted=True`:
 
 * `predicted`: the tracker's Kalman prediction while the object was hidden. Kept only if the
   object is found again; predictions trailing off after something leaves are thrown away.
-* `stitched`: the tracker lost the object and later gave it a new ID. groundtrack re-linked the
+* `stitched`: the tracker lost the object and later gave it a new ID. motus re-linked the
   two fragments **in ground coordinates**, because the new one started where the old one was
   heading, within `stitch_radius_m`. Small, distant people behind columns often need this.
 * `interpolated`: a single bad detection (a jump) that was removed and filled in.
@@ -558,9 +674,10 @@ In `topdown.png` these segments are white and dotted. `predicted_gaps.geojson` h
 separate lines for QGIS. `field_grid.csv` and `density.png` leave them out by default
 (`grid.include_predicted`).
 
----
+</details>
 
-## 5. Outputs (one folder per run)
+<details>
+<summary><b>§5 Outputs in full, and composites</b></summary>
 
 Each run writes `runs/<site>/<run>/`, sorted by what you use it for:
 
@@ -584,8 +701,8 @@ _working/           tracker output, camera motion, config + calibration snapshot
 | `images/plan_tracks.png`, `plan_flowfield.png`, `plan_density.png` | drawn exactly as the first maps (`extras/`), without frame or legend: tracks in the speed colours (white dots = bridged through occlusion), vector-field streamlines (colour = speed, width = how much data supports them) and occupancy (inferno, log scale) |
 | `images/*_layer.png` | the same drawings alone on transparency, to stack in Photoshop / InDesign / Illustrator. All `plan_*` images and layers share one extent and size |
 | `labels/legend_speed`, `legend_density`, `scale_bar`, `north_arrow` | `_light` (white ink, for dark backgrounds) and `_dark`, transparent. The scale bar is drawn at the plan images' pixel scale: resize the two together. `title.txt` holds the plate text |
-| `<site>_plate.png` | the complete plate, only with `package: plate: true` (off by default). Its text comes from `package:` in the config (`title`, `index`, `subtitle`, `date`, `credit`). Redraw the images with `groundtrack package -c ... --run ...` (`package: enabled: false` turns images, labels and clean videos off) |
-| `videos/overlay.mp4` | overlay on the original video, only with `--debug-video` (or `groundtrack debug-video`); people blurred unless `--no-blur`. Default **clean** style, as the first videos: only the tracks that survive cleaning, as smoothed trails coloured by speed, kept for the whole clip (`debug_video.trail_s: 3` keeps the last 3 s), with a dot at each current position over the slightly dimmed picture (`debug_video.dim`) aligned to the calibration frame (no camera shake), plus a thin box in the group's colour around each object (people blue, cyclists green, buses orange, vehicles red; `debug_video.boxes: false` hides them). `--boxes` writes the full debug view (boxes, IDs, rejected tracks in grey) as `overlay_boxes.mp4`, `--trail-s 5` keeps the last 5 s. Colour = real m/s once calibrated, approximate m/s from body height before that |
+| `<site>_plate.png` | the complete plate, only with `package: plate: true` (off by default). Its text comes from `package:` in the config (`title`, `index`, `subtitle`, `date`, `credit`). Redraw the images with `motus package -c ... --run ...` (`package: enabled: false` turns images, labels and clean videos off) |
+| `videos/overlay.mp4` | overlay on the original video, only with `--debug-video` (or `motus debug-video`); people blurred unless `--no-blur`. Default **clean** style, as the first videos: only the tracks that survive cleaning, as smoothed trails coloured by speed, kept for the whole clip (`debug_video.trail_s: 3` keeps the last 3 s), with a dot at each current position over the slightly dimmed picture (`debug_video.dim`) aligned to the calibration frame (no camera shake), plus a thin box in the group's colour around each object (people blue, cyclists green, buses orange, vehicles red; `debug_video.boxes: false` hides them). `--boxes` writes the full debug view (boxes, IDs, rejected tracks in grey) as `overlay_boxes.mp4`, `--trail-s 5` keeps the last 5 s. Colour = real m/s once calibrated, approximate m/s from body height before that |
 | `videos/topdown.mp4` | the same, animated: trails build up over the map with a dot at each current position, legend, scale bar and clock (`visuals.topdown_video`, `topdown_video_speedup`) |
 | `videos/flowfield.mp4` | particles streaming through the smoothed vector field over the map, coloured by speed: the same field `houdini_field.py` gives a particle sim (`visuals.flowfield_video`) |
 | `videos/*_clean.mp4` | the same videos without clock, legend, scale bar or title |
@@ -614,13 +731,13 @@ symbology with `mean_vx` / `mean_vy`.
 
 ---
 
-### Several clips of one place: `composite`
+#### Several clips of one place: `composite`
 
 Every run of a site is already in British National Grid on the same aerial, so the clips of
 one place combine into one plan:
 
 ```powershell
-groundtrack composite sites/trafalgar63*.yaml -o results/trafalgar_composite --title "Trafalgar Square"
+motus composite sites/trafalgar63*.yaml -o results/trafalgar_composite --title "Trafalgar Square"
 ```
 
 It writes the same kind of package as a run (`images/` frameless plans and layers, `labels/`,
@@ -659,7 +776,10 @@ directions are compared, for each group (people, vehicles) on its own
 a pair that disagrees everywhere it overlaps usually points at one calibration (though two
 moments of a busy square can genuinely move differently).
 
-## 6. Houdini import
+</details>
+
+<details>
+<summary><b>§6 Houdini, Rhino and Grasshopper in detail</b></summary>
 
 1. Create a *Geometry* node. Inside it, add a **Python** SOP (*Python Script*).
 2. Paste the contents of `runs/<site>/<run>/houdini/houdini_import.py` into its code box. Or
@@ -683,7 +803,7 @@ moments of a busy square can genuinely move differently).
   POP Source (emit from *all points*, *Use Inherited Velocity*) or in a POP Wrangle to steer agents.
   For trails, keep `MODE = "tracks"` and blast with `@time_s > $T`.
 
-### Vector field for particle sims (`houdini_field.py`)
+#### Vector field for particle sims (`houdini_field.py`)
 
 Every run also writes a **smoothed top-down vector field**:
 
@@ -732,13 +852,13 @@ If a node wants a VDB vector field: Convert VDB on the three `vel.*` volumes, th
 Merge → `vel`. The axes and origin are the same as `houdini_import.py`, so the field, the
 measured tracks and the particles all line up.
 
-Composites (`groundtrack composite`) have the same two scripts in their `houdini/` folder, with
+Composites (`motus composite`) have the same two scripts in their `houdini/` folder, with
 `vector_field_<group>.csv` of all clips together.
 
-### A ready particle scene per site, with modules (`houdini-pop`)
+#### A ready particle scene per site, with modules (`houdini-pop`)
 
 ```bash
-groundtrack houdini-pop --site plaza --composite <composite folder> \
+motus houdini-pop --site plaza --composite <composite folder> \
     --clips <clip folder> <clip folder> ... --out <kit folder>
 ```
 
@@ -765,9 +885,9 @@ All modules of a site share its origin, so the clips sit on the whole exactly. C
 Houdini 21 (hython): particles move at the field's speeds (plaza 1.05 m/s against 1.05 in the
 field), stay inside it, and their trails follow the measured flow.
 
-### Rhino 8 and Grasshopper (`rhino/`)
+#### Rhino 8 and Grasshopper (`rhino/`)
 
-Every run and every composite also gets a `rhino/` folder (`groundtrack rhino -c ... --run ...`
+Every run and every composite also gets a `rhino/` folder (`motus rhino -c ... --run ...`
 writes it for older runs):
 
 * **`<site>.3dm`**: open it in Rhino, or bring it into Grasshopper with *Geometry Pipeline*
@@ -800,9 +920,10 @@ Coordinates in both are metres from the run's origin (British National Grid E/N 
 `origin_Z`, so the Trafalgar terrace sits 3 m above the square. Grasshopper scales to the
 document's units automatically.
 
----
+</details>
 
-## 7. Ground-truth check
+<details>
+<summary><b>§7 Ground-truth check</b></summary>
 
 Measure the real accuracy at each site. The procedure takes five minutes.
 
@@ -812,7 +933,7 @@ Measure the real accuracy at each site. The procedure takes five minutes.
    in a straight line to B, then stand still on B for 3 s.
 3. Run:
    ```powershell
-   groundtrack groundtruth --config sites/plaza.yaml --video footage/walk_test.mp4 `
+   motus groundtruth --config sites/plaza.yaml --video footage/walk_test.mp4 `
        --start 529995.5 180005.0 --end 530004.5 180005.0
    # or without coordinates: --length 12.0   (length and speed only)
    # optional: --stopwatch 8.4   (walking time you measured), --track-id 3
@@ -825,13 +946,14 @@ Measure the real accuracy at each site. The procedure takes five minutes.
    * **start/end error**: absolute position while you stand on A and B (target < 0.5 m);
    * **lateral RMS**: wobble of the projected path around the straight line (target < 0.3 m).
 
-On the synthetic demo (`groundtrack demo`, then `groundtrack groundtruth` on its video with A/B)
+On the synthetic demo (`motus demo`, then `motus groundtruth` on its video with A/B)
 the tool scores 4–5 cm end-point error, -0.2 % length error, 0.1 % speed error and 5 cm lateral
 RMS. Real footage will be worse; that's what this check is for.
 
----
+</details>
 
-## 8. Accuracy notes and limitations
+<details>
+<summary><b>§8 Accuracy notes and limitations</b></summary>
 
 * **Low viewpoints: limit the range.** Each pixel covers more ground the further away and the
   flatter the view: roughly distance² ÷ (focal length × camera height). From 2–3 m eye height,
@@ -931,13 +1053,14 @@ RMS. Real footage will be worse; that's what this check is for.
 * **Field grid and density are time-weighted.** A slow walker leaves more samples per cell than a
   runner, which is what you want for occupancy, not for counts. For counts, use `count_lines`.
 
----
+</details>
 
-## 9. Troubleshooting
+<details>
+<summary><b>§9 Troubleshooting</b></summary>
 
 | symptom | fix |
 |---|---|
-| `groundtrack device` says cpu on the NVIDIA laptop | you installed the CPU wheel: `pip uninstall torch torchvision` and reinstall from the `cu128` index (§1); update the NVIDIA driver |
+| `motus device` says cpu on the NVIDIA laptop | you installed the CPU wheel: `pip uninstall torch torchvision` and reinstall from the `cu128` index (§1); update the NVIDIA driver |
 | calibration RMSE > 0.5 m | spread the points out, use ground-contact features, zoom in before clicking, check the map really is EPSG:27700, film with **stabilisation off** and the **1× lens** |
 | check image lines up at the centre but not at the edges | lens distortion: use the 1× lens, or run `lens-calibrate` (§3.6) |
 | speeds drift over a long recording | the camera moved (tripod knocked, window flexing); re-calibrate on a frame from that part |
@@ -949,9 +1072,10 @@ RMS. Real footage will be worse; that's what this check is for.
 | slow on a laptop | `vid_stride: 2` (halves the work; speeds are still right), `yolo26s.pt`, ROI |
 | picker window doesn't open | needs a desktop session (Tk); over SSH, use `--points-csv ... --no-gui` |
 
----
+</details>
 
-## 10. Privacy
+<details>
+<summary><b>§10 Privacy in full</b></summary>
 
 * Only bounding-box coordinates are stored. **No face crops, no images of people, no
   appearance embeddings, no identities.** ReID is off, and track IDs are arbitrary numbers that
@@ -961,7 +1085,7 @@ RMS. Real footage will be worse; that's what this check is for.
 * **Blurring uses every detection, not just the tracks.** Tracking drops some boxes on purpose
   (a person cut off by the bottom of the frame has no feet to measure); every person and
   vehicle the detector sees is also written to `_working/privacy_boxes.csv`, and the blur uses
-  both. Runs tracked before this existed: `groundtrack privacy -c <site>.yaml --run <run>`,
+  both. Runs tracked before this existed: `motus privacy -c <site>.yaml --run <run>`,
   then re-render the overlay video / package.
 * **Each blur box is held for 0.25 s** before and after its detection. The detector loses a
   person for a frame or two now and then (1-6 % of person boxes in the test clips). Without the
@@ -982,9 +1106,10 @@ RMS. Real footage will be worse; that's what this check is for.
   protection guidance (UK GDPR). Signage at the site and short retention periods are standard
   practice.
 
----
+</details>
 
-## 11. Tests
+<details>
+<summary><b>§11 Tests</b></summary>
 
 ```powershell
 pytest                 # everything, including the end-to-end run (~40 s on the GPU)
@@ -1011,15 +1136,17 @@ pytest -m "not e2e"    # unit tests only (~1 min, most of it the automatic calib
   commands and safe run names; it refuses other hostnames and cross-site posts; the camera
   position is written into the config without touching the rest.
 * `test_desktop.py`: the desktop app's live calibration fit equals the CLI picker's, saving
-  pairs backs up and calibrates like `groundtrack calibrate`, the area file, kits / models /
+  pairs backs up and calibrates like `motus calibrate`, the area file, kits / models /
   combined plans found in library folders, the plugin version, and the same guards as the UI.
 * `test_e2e.py`: generates the demo video, runs calibration, YOLO, tracking and all exports, then
   checks positions (within 25 cm), speeds (within 6 %), the occlusion bridging, the package (every
   plan image and layer stacks, the metrics) and the `groundtruth` command.
 
+</details>
+
 ---
 
-## License
+## Licence
 
-AGPL-3.0, matching [Ultralytics](https://github.com/ultralytics/ultralytics), whose YOLO models
-and trackers this tool builds on. See `LICENSE`.
+AGPL-3.0-or-later, matching [Ultralytics](https://github.com/ultralytics/ultralytics), whose YOLO
+models and trackers this tool builds on. See [`LICENSE`](LICENSE).
