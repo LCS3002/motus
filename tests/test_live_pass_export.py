@@ -167,6 +167,34 @@ def test_cli_export_files_only(saved, capsys):
     assert f"pass export -> {out}" in capsys.readouterr().out
 
 
+def test_a_pass_saved_while_its_recording_recorded(tmp_path):
+    """A realtime recording's pass that ended before the recorder stopped (another site): its .bin
+    holds the package's first points ("growing"), read against the finished package as the same
+    drawing a pass over all of it gives."""
+    from groundtrack.live_pass_export import pass_points
+
+    root = tmp_path / "proj"
+    run = root / "runs" / "live" / "20261030-142620"
+    a = package(run, 1000.0)
+    k = int((a["frame"] < 12).sum())                                   # the points so far: frames 0-11
+    b, n = drawing(a[:k], upto=9)
+    full, n_full = drawing(a, upto=9)
+    cam = {"name": "rt", "id": "rt", "file": "rt.bin", "run": str(run)}
+    grew = lp.save_pass(run, {"site": "live", "cameras": [{**cam, "points": k, "growing": True}]}, {"rt.bin": b}, root=root)["id"]
+    whole = lp.save_pass(run, {"site": "live", "cameras": [{**cam, "points": len(a)}]}, {"rt.bin": full}, root=root)["id"]
+    pts, cams = pass_points(run, grew, root)
+    assert len(pts) == n == n_full and pts["frame"].max() == 9 and cams[0]["points"] == k
+    pd.testing.assert_frame_equal(pts, pass_points(run, whole, root)[0])
+    no_flag = lp.save_pass(run, {"site": "live", "cameras": [{**cam, "points": k}]}, {"rt.bin": b}, root=root)["id"]
+    with pytest.raises(ValueError, match="re-exported since"):
+        pass_points(run, no_flag, root)
+    more, _ = drawing(np.concatenate([a, a[:4]]), upto=9)
+    too_many = lp.save_pass(run, {"site": "live", "cameras": [{**cam, "points": len(a) + 4, "growing": True}]},
+                            {"rt.bin": more}, root=root)["id"]
+    with pytest.raises(ValueError, match="re-exported since"):
+        pass_points(run, too_many, root)
+
+
 def test_collage_layers_exported_as_a_run(saved, capsys):
     """05, 29 Oct (3): the collage (08 sandbox: each camera a layer, built from one or more plays) and
     one camera's layer, as the view shows them (a layer can be part of a pass), into

@@ -27,7 +27,9 @@ holding it), "site", "start_spot", "started", "ended" (local ISO times), "saved"
 clip), "origin" (the pass frame: the start package's scene.json origin), "layout" (the record
 layout above), "cameras": [{"name", "id", "clip", "run_name", "run" (project-relative where
 possible), "origin", "offset" [dE, dN, dz], "fps", "frames", "points" (n), "performed_to" (the
-last frame drawn), "file", "tint", "players"}], "recording" (version 2, below)}.
+last frame drawn), "file", "tint", "players", "growing" (true: saved while its realtime recording
+still recorded; "points" are then its package's first n, which only adds points on)}], "recording"
+(version 2, below)}.
 Readers ignore keys they don't know.
 
 The recording (job 05, 29 Oct: a session is a pass; every pass records itself, the mouse too).
@@ -36,7 +38,7 @@ something changed (a pose, the clock, a camera's frame, the machine's counts, an
 two rows everything held. "recording": {"format": "motus-live-rec", "version": 1, "started"
 (local ISO), "clock": {"file": "clock.rec", "rows"}, "events": {"file": "events.jsonl", "n"},
 "cameras": [{"name", "id", "clip", "run", "origin", "offset", "fps", "frames", "points", "tint",
-"file": "<camera id>.rec", "rows", "players"}] (every camera that took part, drawn or not),
+"growing" (as above), "file": "<camera id>.rec", "rows", "players"}] (every camera that took part, drawn or not),
 "clock_fields", "camera_fields" (the numpy dtypes below as [name, type, shape, offset])}.
     clock.rec     CLOCK_DTYPE rows, 24 bytes: one per recorded frame k (k = the row number)
         t f8      s since the pass began (the view's clock: the performance's time axis)

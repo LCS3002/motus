@@ -29,6 +29,20 @@ export function unpackPass(buf, n, upTo = -1) {
            kind: new Uint8Array(buf.slice(14 * n, 15 * n)), cause: new Uint8Array(buf.slice(15 * n, 16 * n)), upTo };
 }
 
+/** Whether a saved pass's camera c fits its package of n points now: the same points, or (saved
+    while its recording recorded: "growing") the first of them (a recording's points only add on). */
+export const fitsPackage = (c, n) => c.points === n || (!!c.growing && c.points < n);
+
+/** A drawing of a package's first points -> one of all n (the later ones not drawn yet: kind 255). */
+export function padPass(snap, n) {
+  const m = snap.kind.length;
+  if (m >= n) return snap;
+  const X = new Float32Array(3 * n).fill(NaN), part = new Uint16Array(n), kind = new Uint8Array(n).fill(255),
+        cause = new Uint8Array(n);
+  X.set(snap.X); part.set(snap.part); kind.set(snap.kind); cause.set(snap.cause);
+  return { X, part, kind, cause, upTo: snap.upTo };
+}
+
 /** Two drawings of one camera in one pass (it left and came back): into later, the earlier where
     the later has nothing yet (kind 255). Returns later. */
 export function mergeSnaps(earlier, later) {

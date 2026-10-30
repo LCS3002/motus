@@ -16,7 +16,8 @@ start, and each recording becomes a scene package that today's Live view plays:
       _working/homography_used.json   the fixed camera (the sensor calibration below)
       _working/config_used.yaml       the detection and the machine's rules used
       live/                   the scene package (live_export.py), written as it goes
-        scene.json            "realtime": true; "growing": true until Stop
+        scene.json            "realtime": true; "growing": true until Stop; tracks.classes:
+                              every class it tracks, from the start
         tracks.bin            appended frame by frame (seen points only: guessing is rules.js's);
                               the same points are kept in memory for the Live view
                               (LiveTracker.tracks_since), whole frames only
@@ -75,6 +76,7 @@ from .config import COCO_IDS, Config, default_config
 from .homography import Homography
 from .live_export import (
     CELL_M,
+    KEYFRAME_S,
     SPEED_RAMP,
     TERRAIN_MARGIN_M,
     TRACK_DTYPE,
@@ -324,6 +326,7 @@ class Recording:
         self.vsize = (W, Hh)
         self.blur = _Pipe(["-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{W}x{Hh}", "-r", f"{FPS:g}",
                            "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
+                           "-g", str(round(KEYFRAME_S * FPS)),
                            "-pix_fmt", "yuv420p", "-an", str(self.live / "blurred.mkv")])
         self.k_blur = -1                     # the last frame number written to the blurred video
         self.last_blur: np.ndarray | None = None
@@ -636,7 +639,9 @@ class Recording:
             cv2.imwrite(str(self.live / "aerial.jpg"), np.zeros((64, 64), np.uint8))
         cp = self.h.camera_params
         P = self.K @ self.R_cw @ np.column_stack([np.eye(3), -self.C])
-        classes = sorted({ix["class"] for ix in self.index.values()}, key=lambda c: COCO_IDS.get(c, 99))
+        # every class it tracks, from the first write: the view makes its rules at open, a reopened
+        # recording from the last write; the same names, the same drawing (exact replay)
+        classes = sorted(self.cfg.classes, key=lambda c: COCO_IDS.get(c, 99))
         scene = {
             "version": 1, "clip": "realtime", "run": self.id, "crs": None,
             "origin": {"E": 0.0, "N": 0.0, "datum_z": None},

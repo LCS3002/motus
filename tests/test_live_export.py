@@ -81,7 +81,7 @@ def demo_export(tmp_path_factory):
             "scene": scene, "live": run.root / "live"}
 
 
-def test_scene_header(demo_export):
+def test_scene_header(demo_export, key_frames):
     s, live, n = demo_export["scene"], demo_export["live"], demo_export["site"]["n_frames"]
     assert set(s) == {"version", "clip", "run", "crs", "origin", "fps", "frames", "duration_s",
                       "image_size", "camera", "terrain", "aerial", "tracks", "video", "R_max",
@@ -94,6 +94,8 @@ def test_scene_header(demo_export):
     for k in ("scene.json", "terrain.f32", "aerial.jpg", "tracks.bin", "tracks_index.json",
               "video.mp4", "check.png"):
         assert (live / k).exists(), k
+    kf = key_frames(live / "video.mp4")                     # a keyframe every second: Live seeks it
+    assert kf[0] == 0 and max(np.diff(kf + [n])) <= round(FPS) < n
     t = s["terrain"]
     assert (live / "terrain.f32").stat().st_size == t["nx"] * t["ny"] * 4
     # the terrain covers R_max + 20 m around the camera, the aerial the same extent

@@ -39,6 +39,7 @@ CELL_M = 1.0
 TERRAIN_MARGIN_M = 20.0     # the terrain reaches this far past R_max
 AERIAL_PX = 2048            # the aerial's long side
 MAX_VIDEO_W = 1920
+KEYFRAME_S = 1.0            # video.mp4: a keyframe every second (Live seeks it: scrub, render)
 SPEED_RAMP = {"lo": 1.0, "hi": 40.0, "scale": "log"}     # m/s, as the Richmond sheets
 SOURCES = {"detected": 0, "predicted": 1, "stitched": 2, "interpolated": 3}
 TRACK_DTYPE = np.dtype([("track_id", "<u4"), ("frame", "<u4"), ("t", "<f4"), ("x", "<f4"),
@@ -318,7 +319,7 @@ def write_video(cfg: Config, run, video: Path, out: Path, frames: range, fps: fl
     W, H = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     scale = min(1.0, MAX_VIDEO_W / W)
     size = (int(round(W * scale)), int(round(H * scale)))
-    sink = VideoSink(out, fps, size)
+    sink = VideoSink(out, fps, size, keyint=max(1, round(KEYFRAME_S * fps)))
     cap.set(cv2.CAP_PROP_POS_FRAMES, frames.start)
     n, kept, extra_n, unreg = 0, None, 0, 0
     try:

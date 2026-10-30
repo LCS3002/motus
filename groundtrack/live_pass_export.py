@@ -176,8 +176,9 @@ def pass_points(run: Path, pass_id: str, root: Path | None = None) -> tuple[pd.D
         crun = Path(c["run"]) if Path(c["run"]).is_absolute() else root / c["run"]
         scene, rec, index = _package(crun)
         n = int(c["points"])
-        if len(rec) != n:
+        if len(rec) != n and not (c.get("growing") and n < len(rec)):
             raise ValueError(f"{c['name']}: its package has {len(rec)} points, the pass {n} (re-exported since)")
+        rec = rec[:n]                    # (saved while its recording recorded: its first n points)
         df, next_id = _drawn(c["name"], scene, rec, index, read_drawing(folder / c["file"], n), next_id)
         cams.append({"name": c["name"], "run": crun, "origin": _origin(scene), "scene": scene,
                      "drawn": 0 if df is None else len(df), "points": n})

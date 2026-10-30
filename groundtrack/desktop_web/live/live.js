@@ -75,7 +75,7 @@ import { Timeline, fmtTime } from "./timeline.js";
 import { Section } from "./section.js";
 import { PoseLink, MouseController, PoseInput, cameraDelta, matToQuat, headMatrix, GAIN_MIN, GAIN_MAX, GAINS } from "./pose.js";
 import { TINTS, hexRGB, freeTint, offsetFrom, findCamera } from "./spots.js";
-import { packPass, unpackPass, localIso, passLabel, mergeSnaps } from "./passes.js";
+import { packPass, unpackPass, padPass, fitsPackage, localIso, passLabel, mergeSnaps } from "./passes.js";
 import { Panels } from "./panels.js";
 import { Recorder, machineCounts, CHANGED, HELD, LEVELLING, TILTED, PERFORMED, JOINED, SMOOTH, PLAYING, AT_END } from "./record.js";
 import { Replay, readRecording, compareDrawings, rowCamera } from "./replay.js";
@@ -892,7 +892,7 @@ const hubSeen = new Map();                      // the hub's players: number -> 
 /** What the recording keeps about a camera (its package, its place in the pass). */
 const camInfo = (s) => ({ id: s.cam.id, clip: s.cam.clip, run_name: s.cam.run_name, run: s.cam.run, origin: s.meta.origin || null,
                           offset: s.offset.map((v) => round(v, 3)), fps: s.meta.fps, frames: s.meta.frames, points: s.data.n,
-                          tint: s.tint });
+                          tint: s.tint, ...(s.growing ? { growing: true } : {}) });
 
 /** A camera takes part in the pass from its join frame (its drawing starts there). */
 function recJoin(s, reason = null) {
@@ -918,7 +918,7 @@ function passBegin() {
 function passEnd(reason) {
   if (!P.cur) return;
   rec.event("pass_end", { value: { reason, complete: timeline.atEnd } }, performance.now(), timeline.time);
-  if (hasDrawing(P.cur)) savePass(P.cur);
+  return hasDrawing(P.cur) ? savePass(P.cur, true) : P.saving;
 }
 
 /* Whether pass p has drawn anything: a camera that left during it, or one past the frame it began
@@ -935,7 +935,7 @@ function resetSpots() {
 
 /** A camera's drawing in a pass, with what the saved form keeps about the camera. */
 function passEntry(s, snap) {
-  return { cam: s.cam, meta: s.meta, data: s.data, offset: s.offset, tint: s.tint, snap };
+  return { cam: s.cam, meta: s.meta, data: s.data, offset: s.offset, tint: s.tint, growing: !!s.growing, snap };
 }
 
 const copySnap = (sn) => ({ ...sn, X: sn.X.slice(), kind: sn.kind.slice(), cause: sn.cause.slice(), part: sn.part.slice() });
@@ -959,11 +959,11 @@ function passDrawings(p) {
 
 /* The pass saved (<start run>/live/passes/<id>/: groundtrack/live_passes.py), the same pass again
    when it was saved before. The drawing is taken now; the saves go one after another. */
-function savePass(p) {
+function savePass(p, ending = false) {
   if (!SAVE || bench.on || !L || R) return P.saving;
-  // a recording while it records: its pass is saved once its points are all there (a pass's .bin
-  // holds the package's n), at the recorder's Stop
-  if (L.spots.some((s) => s.growing)) return P.saving;
+  // a recording while it records: its pass is saved at the recorder's Stop, once its points are all
+  // there; a pass that ends before (another site, undo, clear) with the points so far ("growing")
+  if (!ending && L.spots.some((s) => s.growing)) return P.saving;
   const dr = passDrawings(p);
   if (!dr.size) return P.saving;
   const data = {}, cameras = [];
@@ -977,7 +977,7 @@ function savePass(p) {
     cameras.push({ name, id: e.cam.id, clip: e.cam.clip, run_name: e.cam.run_name, run: e.cam.run,
                    origin: e.meta.origin || null, offset: e.offset.map((v) => round(v, 3)), fps: e.meta.fps,
                    frames: e.meta.frames, points: e.data.n, performed_to: e.snap.upTo, file, tint: e.tint,
-                   players: [...(p.players.get(name) || [])] });
+                   players: [...(p.players.get(name) || [])], ...(e.growing ? { growing: true } : {}) });
   }
   const manifest = { site: L.site, start_spot: L.startName, started: p.started, ended: localIso(), complete: timeline.atEnd,
                      clock_s: round(timeline.time, 3), duration_s: round(timeline.duration, 3), origin: L.origin0, cameras };
@@ -987,13 +987,14 @@ function savePass(p) {
     manifest.recording = r.meta;
   }
   p.dirty = false;
-  P.saving = P.saving.then(async () => {
+  P.saving = P.saving.then(async () => {           // (true: this save went through)
     try {
       const r = await postFiles("/api/live/pass/save", { action: "save", run: p.run, id: p.id, manifest }, data);
       p.id = r.id;
       flash(`Pass saved · ${r.id}`);
       refreshPasses();
-    } catch (e) { p.dirty = true; note(`The pass was not saved: ${e.message}`); }
+      return true;
+    } catch (e) { p.dirty = true; note(`The pass was not saved: ${e.message}`); return false; }
   });
   return P.saving;
 }
@@ -1259,8 +1260,8 @@ async function loadPass(q, poses = null) {
       const run = c.path || c.run;
       const { meta, data } = await packageData(run);
       if (L !== site) return;
-      if (data.n !== c.points) { skipped.push(c.name); continue; }       // the package changed since
-      const snap = unpackPass(await fetchOk(`/live/passdata?run=${enc(q.run)}&id=${enc(m.id)}&file=${enc(c.file)}`), c.points, c.performed_to);
+      if (!fitsPackage(c, data.n)) { skipped.push(c.name); continue; }   // the package changed since
+      const snap = padPass(unpackPass(await fetchOk(`/live/passdata?run=${enc(q.run)}&id=${enc(m.id)}&file=${enc(c.file)}`), c.points, c.performed_to), data.n);
       if (L !== site) return;
       got.push({ c, data, snap, offset: offsetFrom(c.origin || meta.origin, L.origin0) });
     }
@@ -1334,7 +1335,7 @@ async function startReplay(q, mode = "watch") {
   const tracks = new Map();
   for (const n of names) {
     const s = spotOf(n), info = m.recording.cameras.find((c) => c.name === n);
-    if (!s || (info && info.points !== s.data.n)) { stopReplay(); throw new Error(`${n}: ${s ? "its package changed since the pass" : "not loaded"}`); }
+    if (!s || (info && !fitsPackage(info, s.data.n))) { stopReplay(); throw new Error(`${n}: ${s ? "its package changed since the pass" : "not loaded"}`); }
     R.spots.add(s); R.byName.set(n, s);
     s.tracks.setMode("performed");
     tracks.set(n, s.tracks);
@@ -1433,8 +1434,9 @@ async function checkReplay(q) {
   play.run();
   const dr = play.drawings();
   for (const c of m.cameras || []) {
-    const saved = unpackPass(await fetchOk(`/live/passdata?run=${enc(q.run)}&id=${enc(m.id)}&file=${enc(c.file)}`), c.points, c.performed_to);
     const mine = dr.get(c.name);
+    const saved = padPass(unpackPass(await fetchOk(`/live/passdata?run=${enc(q.run)}&id=${enc(m.id)}&file=${enc(c.file)}`), c.points, c.performed_to),
+                          mine ? mine.kind.length : c.points);
     res.cameras[c.name] = mine ? { ...compareDrawings(mine, saved), counts_rows: seen.get(c.name) || 0, counts_bad: bad.get(c.name) || 0 }
                                : { missing: true };
   }
@@ -2190,7 +2192,7 @@ function syncSites() {
               (e.rmse != null ? ` (the best calibrated, ${e.rmse} m)` : "") + ", or the one used last";
     b.setAttribute("aria-pressed", String(!REALTIME && !!L && e.site === L.site));
     // (from realtime: the site's own page, which turns the mode off)
-    b.onclick = () => { if (REALTIME) location.href = `/live?site=${enc(e.site)}`; else switchSite(e.site); };
+    b.onclick = () => { if (REALTIME) leaveRealtime(`/live?site=${enc(e.site)}`); else switchSite(e.site); };
     el.appendChild(b);
   }
   // realtime (plans/live_controller/10): one phone films, this laptop tracks and draws it now
@@ -2204,10 +2206,20 @@ function syncSites() {
     const more = document.createElement("button");
     more.textContent = "Recorder · recordings";
     more.title = "The realtime page: the recorder's frame size (1080p / 720p) and the saved recordings";
-    more.onclick = () => { location.href = "/live/realtime"; };
+    more.onclick = () => leaveRealtime("/live/realtime");
     el.appendChild(more);
   }
   $("#sites").hidden = false;
+}
+
+/* Away from realtime (another site's page, the recordings): the pass drawn so far saved first (a
+   recording still recording: with its points so far); a save that failed stays (its note says why). */
+async function leaveRealtime(url) {
+  if (L && !R && P.cur && hasDrawing(P.cur)) {
+    flash("Saving the pass first");
+    if ((await passEnd("site")) === false) return;
+  }
+  location.href = url;
 }
 
 /** The passes: how many are in the view, the saved ones (load / delete). */

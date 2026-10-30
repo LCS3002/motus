@@ -214,7 +214,7 @@ def replay(cfg, sent, h):
     return out
 
 
-def test_a_recording_becomes_a_live_package(tmp_path, ffmpeg):
+def test_a_recording_becomes_a_live_package(tmp_path, ffmpeg, key_frames):
     cfg = default_config()
     model = FakeYOLO()
     rt = LiveTracker(tmp_path, cfg=cfg, model=model, log=lambda m: None)
@@ -239,6 +239,7 @@ def test_a_recording_becomes_a_live_package(tmp_path, ffmpeg):
     st = rt.status()
     assert st["calibrated"] and st["camera"]["tilt_deg"] == pytest.approx(20, abs=0.1)
     assert st["frames"] == N - 1 and st["tracked"] == N - 1 and st["tracks"] == 3
+    growing = json.loads((tmp_path / "runs" / "live" / rid / "live" / "scene.json").read_text(encoding="utf-8"))
     rt.end()
     assert until(lambda: rt.saved is not None, 60)
     assert rt.rec is None and rt.status()["saved"]["complete"] is True
@@ -260,6 +261,9 @@ def test_a_recording_becomes_a_live_package(tmp_path, ffmpeg):
     assert scene["clip"] == "realtime"
     assert (scene["fps"], scene["frames"], scene["image_size"]) == (FPS, N, [W, H])
     assert scene["aerial"]["blank"] is True and scene["video"]["blurred"] is True
+    # the classes it tracks, named from the first write (the view's rules then = a reopened one's)
+    assert growing["growing"] is True and growing["tracks"]["classes"] == scene["tracks"]["classes"]
+    assert set(scene["tracks"]["classes"].values()) == set(cfg.classes) >= {"person", "bicycle"}
     tr = scene["terrain"]
     assert np.fromfile(live / "terrain.f32", "<f4").shape == (tr["nx"] * tr["ny"],)
 
@@ -297,6 +301,8 @@ def test_a_recording_becomes_a_live_package(tmp_path, ffmpeg):
     for (x1, y1, x2, y2) in boxes(10)[0][:3].astype(int):  # the unsure person blurred too
         assert vid[10][y1:y2, x1:x2].std() < 0.4 * raw[10][y1:y2, x1:x2].std()
     assert vid[10][300:350, 300:400].std() > 0.8 * raw[10][300:350, 300:400].std()  # nobody here
+    kf = key_frames(live / "video.mp4")                     # a keyframe every second: Live seeks it
+    assert kf[0] == 0 and max(np.diff(kf + [N])) <= 30 < N
 
     poses = np.fromfile(live / "recorder_pose.rec", POSE_DTYPE)
     assert poses["k"].tolist() == sent and poses["seq"].tolist() == sent

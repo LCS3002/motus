@@ -1591,9 +1591,11 @@ def growing_tracks():
 
 GROW = """
 const Ru = await import(LIVE + "rules.js");
+const Ps = await import(LIVE + "passes.js");
 const fs = await import("node:fs");
 const sc = P.prepareScene(job.meta, null), zero = mousePose(0, 0), I = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
 const all = Uint8Array.from(fs.readFileSync(process.argv[2] + "/tracks.bin")).buffer;
+let mid = null;
 const pan = (f) => (f < 8 ? 0 : Math.min(3 * (f - 7), 30));
 const cam = (p) => P.poseToCamera(sc, mousePose(p, 0), zero, 1, 1);
 const nanless = (A) => Array.from(A, (v) => (Number.isNaN(v) ? null : v));
@@ -1623,8 +1625,15 @@ for (const [c, [i0, i1, F]] of job.chunks.entries()) {
     dist: [Array.from(g.guess.dist.slice(0, 2 * g.guess.n)), Array.from(whole.guess.dist.slice(0, 2 * whole.guess.n))],
     heads: [nanless(g.headPos.slice(0, 3 * g.nHeads)), nanless(whole.headPos.slice(0, 3 * whole.nHeads))],
     counts: [g.counts(F - 1), whole.counts(F - 1)], ref: [g.ref.n, g.refStale] });
+  if (c === 4) {                                    // the pass ends here (another site): saved with the points so far
+    const saved = Ps.padPass(Ps.unpackPass(Ps.packPass(g.snapshot()), n, g.perfFrame), whole.d.n), w = whole.snapshot();
+    mid = { n, N: whole.d.n, upTo: [saved.upTo, w.upTo],
+            same: ["X", "kind", "cause", "part"].map((k) => JSON.stringify(nanless(saved[k])) === JSON.stringify(nanless(w[k]))) };
+  }
 }
 out("steps", steps);
+out("mid", { ...mid, fits: [[mid.n, true], [mid.n, false], [mid.N, false], [mid.N + 1, true]].map(([points, growing]) =>
+  Ps.fitsPackage({ points, growing }, mid.N)), whole: (() => { const s = whole.snapshot(); return Ps.padPass(s, mid.n) === s; })() });
 const kinds = new Set(whole.rPerf.out.kind), causes = new Set(whole.rPerf.out.cause), parts = new Set(whole.rPerf.out.part);
 out("covers", { kinds: [...kinds].sort(), causes: [...causes].sort(), parts: [...parts].sort(), tracks: [d.nTracks, whole.d.nTracks] });
 // the reference made again of the whole recording: the whole one's
@@ -1655,8 +1664,9 @@ def test_a_growing_recording_drawn_as_it_comes_is_the_whole_one_performed(tmp_pa
     frame drawn as it comes (appendTracks + grow, then perform) gives what the whole recording
     performed with the same poses gives: the rules' verdicts and positions, the lines, dashes and
     heads, the counts; the reference made again of everything is the whole one's; the line
-    buffers grow in place. A recording with no frame whole yet performs nothing. trackIndex (a
-    count, not a sort) orders as a stable sort by id."""
+    buffers grow in place. A recording with no frame whole yet performs nothing. A pass saved
+    mid-recording (its points so far, "growing") read on the finished recording is the whole one's
+    drawing to there. trackIndex (a count, not a sort) orders as a stable sort by id."""
     a = growing_tracks()
     (tmp_path / "tracks.bin").write_bytes(a.tobytes())
     cuts = [0, 5, 9, 12, 17, 24, 26]                            # frames whole after each poll
@@ -1672,6 +1682,9 @@ def test_a_growing_recording_drawn_as_it_comes_is_the_whole_one_performed(tmp_pa
         assert s["later"]                                       # the whole one: nothing after drawn
         assert s["solid"][0] == s["solid"][1] and s["guess"][0] == s["guess"][1] and s["dist"][0] == s["dist"][1]
         assert s["heads"][0] == s["heads"][1] and s["counts"][0] == s["counts"][1]
+    m = res["mid"]                                              # a pass saved mid-recording, read on the whole
+    assert m["n"] == chunks[4][1] < m["N"] and m["upTo"] == [chunks[4][2] - 1] * 2 and all(m["same"])
+    assert m["fits"] == [True, False, True, False] and m["whole"]
     assert [s["ref"][1] for s in st[1:]] == [False, False, False, True, True, True]   # stale once it grew
     assert st[3]["ref"][0] > 0 and [s["ref"][0] for s in st[4:]] == [st[3]["ref"][0]] * 3     # as made, until made again
     cv = res["covers"]                                          # the case covers the lexicon

@@ -9,6 +9,24 @@ from groundtrack.demo import ORIGIN, SyntheticCamera  # noqa: F401  (re-exported
 
 
 @pytest.fixture
+def key_frames():
+    """path -> the numbers of a video's keyframes (ffprobe; skipped without it)."""
+    import shutil
+    import subprocess
+
+    if shutil.which("ffprobe") is None:
+        pytest.skip("ffprobe is not installed")
+
+    def frames(path):
+        out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                              "frame=key_frame", "-of", "csv=p=0", str(path)],
+                             capture_output=True, text=True, check=True).stdout
+        return [i for i, v in enumerate(out.split()) if v.startswith("1")]
+
+    return frames
+
+
+@pytest.fixture
 def cam():
     """Camera 12 m up at local (0, -20), pitched 30 deg down, looking north, f = 1400 px."""
     return SyntheticCamera()

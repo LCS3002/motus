@@ -58,9 +58,11 @@ def point_in_polygon(points: np.ndarray, polygon) -> np.ndarray:
 
 class VideoSink:
     """Write BGR frames to an .mp4. Uses ffmpeg's H.264 encoder through a pipe when ffmpeg
-    is installed (fast, small files that play everywhere), else OpenCV's MPEG-4 writer."""
+    is installed (fast, small files that play everywhere), else OpenCV's MPEG-4 writer.
+    keyint: a keyframe at least every keyint frames (x264's own default: 250); a video that is
+    seeked (the Live view's) wants it short: a seek decodes from the keyframe before."""
 
-    def __init__(self, path, fps: float, size: tuple[int, int], crf: int = 19):
+    def __init__(self, path, fps: float, size: tuple[int, int], crf: int = 19, keyint: int | None = None):
         import shutil
         import subprocess
 
@@ -79,6 +81,7 @@ class VideoSink:
                  "-f", "rawvideo", "-pix_fmt", "bgr24",
                  "-s", f"{self.size[0]}x{self.size[1]}", "-r", f"{fps:.6f}", "-i", "-",
                  "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf),
+                 *(["-g", str(int(keyint))] if keyint else []),
                  "-pix_fmt", "yuv420p", "-movflags", "+faststart", self.path],
                 stdin=subprocess.PIPE, stderr=self._err)
         else:
