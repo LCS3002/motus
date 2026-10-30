@@ -322,20 +322,20 @@ def run_calibration(video: Path, geotiff: Path, out_json: Path, frame: int = 0,
     frame_bgr = read_frame(video, frame)
     size = (frame_bgr.shape[1], frame_bgr.shape[0])
     camera_set: dict = {}
-    if camera_prior:
-        camera_prior = dict(camera_prior)
-        from .posefit import camera_calibration
+    camera_prior = dict(camera_prior) if camera_prior else {}   # empty until c sets one
+    from .posefit import camera_calibration
 
-        def fit_fn(a, b):
+    def fit_fn(a, b):
+        if camera_prior:
             return camera_calibration(a, b, size, camera_prior, terrain=terrain)
+        return fit_homography(a, b, ransac_thresh_m=ransac_thresh_m)
+    if camera_prior:
         min_live = 3
         log(f"camera position known (E {camera_prior['E']}, N {camera_prior['N']}, "
             f"{camera_prior['height_m']} m up): fitting a physical camera, 3+ pairs needed")
         if terrain is not None:
             log("ground follows the terrain model: click on any level (terrace, steps, street)")
     else:
-        def fit_fn(a, b):
-            return fit_homography(a, b, ransac_thresh_m=ransac_thresh_m)
         min_live = 5
     if lens is not None:
         frame_bgr = lens.undistort_image(frame_bgr)
@@ -356,6 +356,8 @@ def run_calibration(video: Path, geotiff: Path, out_json: Path, frame: int = 0,
         cam_xy = (camera_prior["E"], camera_prior["N"]) if camera_prior else None
 
         def on_camera(e, n):     # the user marked where they stood: trust it to a few metres
+            if not camera_prior:     # no position in the config: a handheld phone at eye level
+                camera_prior.update(height_m=1.5, height_tol_m=1.0)
             camera_prior.update(E=round(e, 1), N=round(n, 1), position_tol_m=min(
                 float(camera_prior.get("position_tol_m", 15.0)), 4.0))
             camera_set["by_user"] = True
@@ -363,7 +365,7 @@ def run_calibration(video: Path, geotiff: Path, out_json: Path, frame: int = 0,
 
         res = pick_points(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB), raster, init_px,
                           init_world, warn_m, fit_fn=fit_fn, min_live=min_live,
-                          camera_xy=cam_xy, on_camera=on_camera if camera_prior else None)
+                          camera_xy=cam_xy, on_camera=on_camera)
         if res is None:
             raise SystemExit("Calibration cancelled; nothing saved.")
         px, world = res
