@@ -1,4 +1,4 @@
-"""Builds the POP scene of a groundtrack Houdini kit. Runs INSIDE Houdini (hython, or Houdini's
+r"""Builds the POP scene of a groundtrack Houdini kit. Runs INSIDE Houdini (hython, or Houdini's
 Python Shell), not as part of groundtrack:
 
     hython hou_pop_build.py <kit folder>        (writes <site>_pop.hip / .hipnc there)

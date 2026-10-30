@@ -6,7 +6,8 @@
 movement in plan. It finds every person and vehicle, puts them on the ground in metres in British
 National Grid (EPSG:27700), and gives you tracks, speeds, flow fields and densities for QGIS, Rhino,
 Grasshopper and Houdini. Its live mode makes phones the camera: as a phone turns, the machine
-redraws every track as if the camera had moved. Everything runs locally.
+redraws every track as if the camera had moved. In Realtime, one phone films and the laptop tracks
+it as it comes, while the other phones turn the camera. Everything runs locally.
 
 The command is `motus`; `groundtrack` works too (the same command). The Python package keeps the
 code name `groundtrack`.
@@ -191,9 +192,21 @@ motus app                               # open Live from the run; phones scan th
 * **Exports:** `motus live-pass-export <run> <id> --rhino --houdini` writes what the machine
   drew as a run (points, GeoJSON, the camera path, Houdini curves and field, Rhino, a POP kit), so
   the tools below take it like any other run.
-* **Privacy:** only poses and button presses travel, over the local network (HTTPS + WSS, a pairing
-  code, a self-signed certificate). Video never crosses the link, and the Live view only ever shows
-  the blurred video.
+* **Realtime:** one phone films and the laptop tracks it as it comes (YOLO + ByteTrack on the
+  GPU: about 22 fps at 1080p and 27 at 720p on an RTX 5060 laptop, 15–22 with Live open on the
+  same laptop). Pick "Realtime · now" in Live's site picker, press Record on a phone and hold it
+  still for a second: that calibrates the camera once, from the phone's sensors and a flat ground,
+  for the whole recording. If people come
+  out the wrong height, the phone offers a height or tilt fix (a new recording). Live draws the
+  tracks about 0.3 s behind, and the other phones turn the camera as usual. At Stop the recording
+  becomes a site of its own (`runs/live/<id>/`, with its blurred video), and its pass replays,
+  renders, exports and makes a sheet like any other. A pass that ends earlier (another site) is
+  saved with what came so far. The app's Realtime page sets 1080p or 720p and lists the recordings.
+* **Privacy:** the phones that turn the camera send only poses and button presses, over the local
+  network (HTTPS + WSS, a pairing code, a self-signed certificate). In Realtime the recording phone
+  also sends its camera frames over that link, to the laptop only. The laptop blurs them before
+  anything is shown, and keeps the unblurred frames only in the recording's `raw.mkv` (for an
+  offline re-track; never served or sent on). The Live view only ever shows the blurred video.
 
 ---
 
@@ -224,10 +237,12 @@ terrain model, heights are above the origin. Details in the [reference](#referen
 * **Blurred by default.** The overlay video is off by default; when rendered, people and number
   plates are blurred. Blurring uses every detection, not only the tracks, and holds each box for
   0.25 s so a face does not flash in a missed frame. Look through a video before sharing it.
-* **Live sends no video.** The phone link carries only poses and button presses; the Live view's
-  video is blurred.
+* **Live sends no video, except Realtime's recorder.** The phones that turn the camera send only
+  poses and button presses. In Realtime the recording phone sends its frames to the laptop over the
+  local network; the laptop blurs them before showing them and keeps the unblurred ones only in
+  `runs/live/<id>/raw.mkv`, never served or sent on. The Live view's video is always blurred.
 * **Delete the raw footage** once the run is checked, including the phone's copies and its cloud
-  backup. `points.csv`, `tracks.geojson` and the rest hold everything the research needs.
+  backup, and a Realtime recording's `raw.mkv` once you won't re-track it. `points.csv`, `tracks.geojson` and the rest hold everything the research needs.
 * Footage, runs and site data stay out of this repository. If footage may show identifiable people,
   follow your institution's ethics and data-protection guidance (UK GDPR).
 
@@ -1094,6 +1109,13 @@ RMS. Real footage will be worse; that's what this check is for.
   of every vehicle close enough for its plate to be readable (`debug_video: blur_plates`, on by
   default). Like the people blur, it relies on the detections: a vehicle the detector missed
   is not blurred, so look through a video before sharing it.
+* **Realtime** (motus live): the recording phone's frames go to the laptop only, over the local
+  network, never to the other phones. Every person and vehicle the detector finds at 10 %
+  confidence or more is blurred as a whole box, grown by 15 % and held 0.3 s after it was last
+  found; a frame the tracker skips is replaced by the last blurred one. Only blurred frames are
+  shown or go into the recording's `video.mp4`. The unblurred frames stay in
+  `runs/live/<id>/raw.mkv` for an offline re-track; the app never serves it. Delete it like raw
+  footage.
 * **Delete the raw footage once you've processed it and checked the run.** `points.csv`,
   `tracks.geojson` and the rest contain everything the research needs. In PowerShell:
   `Remove-Item footage\plaza.mp4`. On macOS: `rm footage/plaza.mp4`, then empty the Bin. Also
@@ -1112,8 +1134,8 @@ RMS. Real footage will be worse; that's what this check is for.
 <summary><b>§11 Tests</b></summary>
 
 ```powershell
-pytest                 # everything, including the end-to-end run (~40 s on the GPU)
-pytest -m "not e2e"    # unit tests only (~1 min, most of it the automatic calibration)
+pytest                 # everything, including the end-to-end runs (~7 min on an RTX 5060 laptop)
+pytest -m "not e2e"    # unit tests only (~5 min)
 ```
 
 * `test_homography.py`: exact recovery on a synthetic camera, click noise, a rejected bad click,
@@ -1138,6 +1160,24 @@ pytest -m "not e2e"    # unit tests only (~1 min, most of it the automatic calib
 * `test_desktop.py`: the desktop app's live calibration fit equals the CLI picker's, saving
   pairs backs up and calibrates like `motus calibrate`, the area file, kits / models /
   combined plans found in library folders, the plugin version, and the same guards as the UI.
+* `test_calfigure.py`: the seen ground is the frame on the ground, up to the range; grid lines stay
+  on it.
+* `test_composite.py`: two clips of one place on one plan: coverage-normalised density, separate
+  layers.
+* `test_groundtruth.py`: a perfect walk passes, a scale error is caught, offsets and wobble are
+  reported, the A–B walker is picked.
+* `test_houdini_pop.py`: the kit's modules sit in the site's Houdini frame.
+* `test_privacy.py`: every person is blurred, and the number-plate band of every near vehicle.
+* `test_rhino.py`: the .3dm reads back and the Grasshopper script runs (Rhino stubbed).
+* `test_rotation_registration.py`: a handheld pan as a rotation survives a long pan; the motion
+  probe calls a pan that leaves the reference view "moved".
+* `test_terrain.py`: ground on two levels (a terrace 3 m above a square, joined by steps).
+* `test_live_*.py`: motus live (the view's modules run in Node, skipped without it). The scene
+  package; the projection (each camera move's law, JS = Python); the machine's rules (JS = Python,
+  incremental = batch); the hub and the phone page (pairing, relay, what is logged); passes (saved,
+  listed, deleted, replayed exactly, exported, sheets); the sites; the Live view's routes and
+  modules; Realtime (a recording becomes the package Live opens, and drawn as it comes it equals
+  the whole one).
 * `test_e2e.py`: generates the demo video, runs calibration, YOLO, tracking and all exports, then
   checks positions (within 25 cm), speeds (within 6 %), the occlusion bridging, the package (every
   plan image and layer stacks, the metrics) and the `groundtruth` command.
