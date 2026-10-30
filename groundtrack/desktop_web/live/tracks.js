@@ -19,7 +19,10 @@
    Only the drawn crowd (crowd: the lines, dashes and heads) is turned by the space (08 a, 28 Oct);
    the reference stays level with the site. The ground never hides the crowd; what lies below the
    ground is drawn by setUnder: "same", "dim" (darker), or "veil" (the ground opaque, the crowd
-   seen through it faintly: below reads as under). */
+   seen through it faintly: below reads as under).
+   A realtime recording (10, step 3) grows while it is drawn: appendTracks adds its new points,
+   TrackView.grow takes them (performed only); drawn frame by frame as they come, it is the
+   drawing of the whole recording performed with the same poses. */
 
 import * as THREE from "three";
 import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
@@ -40,17 +43,25 @@ const GHOST = 0.3;           // "veil": the crowd through the ground at this opa
 
 // ---------------------------------------------------------------------------- the package
 /** tracks.bin (30-byte records, see live_export.TRACK_DTYPE) -> typed arrays + indexes. */
-export function parseTracks(buf, meta) {
-  const dv = new DataView(buf), n = (buf.byteLength / 30) | 0, frames = meta.frames | 0;
-  const tid = new Uint32Array(n), frame = new Uint32Array(n), t = new Float32Array(n), X = new Float32Array(3 * n);
-  const speed = new Float32Array(n), cls = new Uint8Array(n), src = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    const o = 30 * i;
+export function parseTracks(buf, meta) { return appendTracks(null, buf, meta.frames); }
+
+/* A growing recording (plans/live_controller/10, step 3): the points of prev (a parseTracks result,
+   or null) and the records in buf after them (appended in frame order: a point keeps its number),
+   frames: the frames whole so far. -> a parseTracks result of them all. */
+export function appendTracks(prev, buf, frames) {
+  const dv = new DataView(buf), m = (buf.byteLength / 30) | 0, n0 = prev ? prev.n : 0, n = n0 + m;
+  const more = (T, a, k = 1) => { const b = new T(k * n); if (a) b.set(a); return b; };
+  const tid = more(Uint32Array, prev && prev.tid), frame = more(Uint32Array, prev && prev.frame);
+  const t = more(Float32Array, prev && prev.t), X = more(Float32Array, prev && prev.X, 3);
+  const speed = more(Float32Array, prev && prev.speed), cls = more(Uint8Array, prev && prev.cls), src = more(Uint8Array, prev && prev.src);
+  for (let i = n0; i < n; i++) {
+    const o = 30 * (i - n0);
     tid[i] = dv.getUint32(o, true); frame[i] = dv.getUint32(o + 4, true); t[i] = dv.getFloat32(o + 8, true);
     X[3 * i] = dv.getFloat32(o + 12, true); X[3 * i + 1] = dv.getFloat32(o + 16, true); X[3 * i + 2] = dv.getFloat32(o + 20, true);
     speed[i] = dv.getFloat32(o + 24, true); cls[i] = dv.getUint8(o + 28); src[i] = dv.getUint8(o + 29);
   }
-  const F = Math.max(frames, n ? frame[n - 1] + 1 : 0);
+  if (n0 && m && frame[n0] < frame[n0 - 1]) throw new Error("tracks: appended points before the last frame");
+  const F = Math.max(frames | 0, prev ? prev.frames : 0, n ? frame[n - 1] + 1 : 0);
   const frameStart = new Uint32Array(F + 1);
   for (let i = 0, f = 0; f <= F; f++) { while (i < n && frame[i] < f) i++; frameStart[f] = i; }
   const index = trackIndex(tid);
@@ -114,6 +125,7 @@ export class TrackView {
     this.ref = new Segs(P, lineMaterial({ width: 0.8, opacity: 0.5, vertexColors: true }), { order: 1 });
     this.refAt = new Uint32Array(data.frames + 2);
     this.refCount = 0;
+    this.refStale = false;             // a growing recording: the reference is of fewer points
     this.headGeo = new THREE.BufferGeometry();
     this.headPos = new Float32Array(3 * data.nTracks + 3);
     this.headCol = new Float32Array(3 * data.nTracks + 3);
@@ -219,6 +231,50 @@ export class TrackView {
     this.dirtyFrom = 0;
   }
 
+  /* A growing recording (plans/live_controller/10, step 3): data, appendTracks of this view's own
+     with the points that came since. What was performed and judged stays; the new points are not
+     performed yet (they are, as their frames come: perform), the machine at rest gets their start
+     drawing (the rules' rest grows with it), the line buffers grow. The reference, when it was
+     made, is stale until refreshReference. Only performed (the whole clip is made again on use). */
+  grow(data) {
+    const o = this.d, n0 = o.n, n = data.n, F = data.frames;
+    if (data === o) return false;
+    const more = (a, len, fill) => {
+      const b = new a.constructor(len);
+      b.set(a.subarray(0, Math.min(a.length, len)));
+      if (fill !== undefined) b.fill(fill, a.length);
+      return b;
+    };
+    this.d = data;
+    const rd = { X: more(this.restDraw.X, 3 * n), state: more(this.restDraw.state, n) };
+    project(this.sc, startCamera(this.sc), data.X, rd, n0, n);
+    this.restDraw = rd;
+    this.perf = { X: more(this.perf.X, 3 * n, NaN), state: more(this.perf.state, n, NOT_YET) };
+    this.speed = more(this.speed, n);
+    this.arc = more(this.arc, n);
+    this.atSolid = more(this.atSolid, F + 2);
+    this.atGuess = more(this.atGuess, F + 2);
+    this.refAt = more(this.refAt, F + 2);
+    this.rPerf = new Rules(data, this.cfg, this.classes, { rest: this.restDraw, prev: this.rPerf });
+    this.rWhole = this.wholeX = this.whole = null;
+    if (this.rest) this.refStale = true;
+    const P = data.pairs.n;
+    for (const s of [this.solid, this.guess, this.ref]) s.reserve(P);
+    if (3 * data.nTracks + 3 > this.headPos.length) {
+      this.headPos = new Float32Array(3 * (2 * data.nTracks + 1));
+      this.headCol = new Float32Array(this.headPos.length);
+      this.headGeo.dispose();
+      this.headGeo.setAttribute("position", new THREE.BufferAttribute(this.headPos, 3).setUsage(THREE.DynamicDrawUsage));
+      this.headGeo.setAttribute("color", new THREE.BufferAttribute(this.headCol, 3).setUsage(THREE.DynamicDrawUsage));
+    }
+    return true;
+  }
+
+  /** The reference again, when the recording grew since it was made. */
+  refreshReference() {
+    if (this.rest && this.refStale) { this.refStale = false; this.computeReference(); }
+  }
+
   /** The performed drawing so far, a copy (a pass, 08 b), or null when nothing is drawn yet. */
   snapshot() { return this.perfFrame >= 0 ? snapshot(this.rPerf.out, this.perfFrame) : null; }
 
@@ -243,6 +299,7 @@ export class TrackView {
      paused). Returns whether anything changed. */
   perform(f, cam, S, poseChanged) {
     const d = this.d, fs = d.frameStart, P = this.perf, C0 = this.sc.C, t0 = performance.now();
+    if (!d.frames) return false;                     // a recording with no frame whole yet
     f = Math.max(0, Math.min(f, d.frames - 1));
     this.stats.rules = 0;
     let changed = false;
@@ -342,7 +399,7 @@ export class TrackView {
     gs.commit(gi, g0);
     this.dirtyFrom = performed ? fEnd + 1 : 0;
     this._heads(f, o);
-    if (this.rest) this.ref.commit(performed ? this.refAt[Math.min(f, d.frames - 1) + 1] : this.refCount);
+    if (this.rest) this.ref.commit(performed && !this.refStale ? this.refAt[Math.min(f, d.frames - 1) + 1] : this.refCount);
     this.stats.speed = t1 - t0;
     this.stats.build = performance.now() - t1;
   }
@@ -388,7 +445,7 @@ export class TrackView {
     return { placed, guessed: guess, dropped };
   }
 
-  setRef(on) { this.ref.obj.visible = !!on; }
+  setRef(on) { this.ref.obj.visible = !!on; if (on) this.refreshReference(); }
 
   setWidth(scale) {
     for (const m of [this.solid.material, this.guess.material]) m.linewidth = this.width * scale;

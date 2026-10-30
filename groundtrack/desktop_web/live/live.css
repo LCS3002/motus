@@ -210,6 +210,8 @@ select option { background: var(--bg); color: var(--fg); }
            background: var(--bg); color: var(--muted); }
 .loading.done { opacity: 0; pointer-events: none; transition: opacity var(--t-slow) var(--ease); }
 .loading.bad { color: var(--bad); }
+/* realtime, no recording open yet: the message over the empty stage, the panel usable */
+.loading.rt-wait { z-index: 5; background: transparent; pointer-events: none; }
 
 /* the Sheet button's hidden page (09): renders the pass's view for its sheet, never seen */
 .sheet-frame { position: fixed; right: 0; bottom: 0; width: 4px; height: 4px; border: 0; opacity: 0; pointer-events: none; }

@@ -17,6 +17,7 @@
 <link rel="preload" href="fonts/SplineSansMono-Variable.woff2?k=__K__" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="phone.css?k=__K__">
 <script type="module" src="phone.js?k=__K__"></script>
+<script type="module" src="record.js?k=__K__"></script>
 </head>
 <body>
 <main class="app">
@@ -93,10 +94,39 @@
   <div class="start-wm"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="19" r="8"/><path d="M3 6.5h26"/></svg><h1 aria-label="motus live">mōtus</h1><span class="label muted">Live</span></div>
   <p>The phone is the camera. Hold it like one: landscape, screen toward you, the back camera
     to the scene.</p>
-  <button id="go" class="go" type="button">Start</button>
+  <div class="gos"><button id="rec" class="go rec" type="button" hidden>Record</button>
+    <button id="go" class="go" type="button">Start</button></div>
   <p id="msg" class="msg"></p>
   <p class="small">hub: <span id="hubst">connecting</span></p>
-  <p class="small">Motion sensors only. No camera, no video leaves this phone.</p>
+  <p id="sensors" class="small">Motion sensors only. No camera, no video leaves this phone.</p>
+  <p id="recnote" class="small" hidden>Realtime. Record: this phone films; its frames go to the
+    laptop only, tracked and blurred there. Manipulate: motion sensors only.</p>
+</div>
+
+<div id="recview" class="recview" hidden>
+  <video id="recvideo" playsinline muted autoplay></video>
+  <header class="rechead">
+    <span class="wm"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="19" r="8"/><path d="M3 6.5h26"/></svg><span class="word" aria-label="motus">mōtus</span></span>
+    <span class="label muted">Record</span>
+    <span id="recdot" class="recdot"></span><span id="recst" class="label">starting</span>
+    <span id="rectime" class="mono">0:00</span>
+    <div class="status label"><span id="recfps" class="mono">0 fps</span><span id="rectr" class="mono">– tracked</span>
+      <span id="reclag" class="mono">– ms</span><span id="reccal" class="muted">calibrating</span></div>
+  </header>
+  <p id="recmsg" class="recmsg" hidden></p>
+  <div class="reclevel" aria-hidden="true"><i id="lvline" class="lv-line"></i><i class="lv-mid"></i></div>
+  <div id="rechold" class="rechold" hidden><span id="recholdtxt" class="label">Hold still</span><i class="hold-bar"><i id="recholdbar"></i></i></div>
+  <div id="reccheck" class="reccheck" hidden>
+    <p id="reccheckmsg"></p>
+    <div class="row"><button id="recusehm" type="button"></button>
+      <button data-tilt="-1" type="button">Tilt −1°</button><button data-tilt="1" type="button">Tilt +1°</button></div>
+  </div>
+  <div class="recfoot">
+    <button id="recheight" class="recchip" type="button" title="The phone's height above the ground (remembered)">Height <span id="recheightval">1.50 m</span></button>
+    <span id="recheightset" class="recstep" hidden><button data-h="-0.05" type="button" aria-label="Lower">−</button><button data-h="0.05" type="button" aria-label="Higher">+</button></span>
+    <button id="recrecal" class="recchip" type="button" disabled title="A new calibration: a new recording (a new pass)">Recalibrate</button>
+  </div>
+  <button id="recstop" class="recstop" type="button" disabled>Stop</button>
 </div>
 </body>
 </html>

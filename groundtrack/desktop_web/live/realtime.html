@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>motus · Realtime</title>
+  <link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/SplineSansMono-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/live/live.css">
+  <link rel="stylesheet" href="/static/live/realtime.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='.5' y='.5' width='31' height='31' rx='7' fill='%230b0b0d' stroke='%233a3a40'/><g transform='translate(4 4) scale(.75)' fill='none' stroke='%23ededed' stroke-width='3' stroke-linecap='round'><circle cx='16' cy='19' r='8'/><path d='M3 6.5h26'/></g></svg>">
+</head>
+<body>
+<div class="winctl" id="winctl" hidden>
+  <button data-win="min" aria-label="Minimise" title="Minimise"><svg viewBox="0 0 12 12"><path d="M1.5 6h9" stroke="currentColor" stroke-width="1"/></svg></button>
+  <button data-win="max" aria-label="Maximise" title="Maximise"><svg class="i-max" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg><svg class="i-restore" viewBox="0 0 12 12"><rect x="1.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/><path d="M3.5 1.5h7v7" fill="none" stroke="currentColor" stroke-width="1"/></svg></button>
+  <button data-win="close" class="close" aria-label="Close" title="Close"><svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2 2 10" stroke="currentColor" stroke-width="1"/></svg></button>
+</div>
+<div class="edge top" data-edge="top" hidden></div><div class="edge tl" data-edge="topleft" hidden></div><div class="edge tr" data-edge="topright" hidden></div>
+
+<header class="bar" id="bar">
+  <button class="btn sm back" id="back" title="Back to the app">← App</button>
+  <svg class="logo" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="16" cy="19" r="8"/><path d="M3 6.5h26"/></svg>
+  <span class="clip">Realtime</span>
+  <span class="sub">one phone films, this laptop tracks</span>
+</header>
+
+<main class="rt">
+  <section class="rt-now">
+    <h2 class="label">Now</h2>
+    <div class="rt-state"><span id="rt-dot" class="rt-dot"></span><span id="rt-state" class="rt-big">Starting…</span></div>
+    <dl class="rt-stats">
+      <div><dt class="label">Time</dt><dd id="rt-time">–</dd></div>
+      <div><dt class="label">Frames in</dt><dd id="rt-in">–</dd></div>
+      <div><dt class="label">Tracked</dt><dd id="rt-tr">–</dd></div>
+      <div><dt class="label">Lag</dt><dd id="rt-lag">–</dd></div>
+      <div><dt class="label">People</dt><dd id="rt-people">–</dd></div>
+      <div><dt class="label">Camera</dt><dd id="rt-cam">–</dd></div>
+    </dl>
+    <div class="row"><button class="btn" id="rt-live" title="The Live view draws each recording as it is tracked; the other phones turn its camera">Open Live (now)</button>
+      <button class="btn" id="rt-end" disabled title="Ends the recording here (the phone's Stop does the same)">Stop the recording</button></div>
+    <div class="row rt-size">
+      <span class="label">Frames</span>
+      <div class="seg" id="rt-size" role="tablist" aria-label="Frame size">
+        <button data-size="1920" role="tab" aria-selected="true">1080p</button>
+        <button data-size="1280" role="tab" aria-selected="false">720p</button>
+      </div>
+      <span class="hint">for the next recording · 720p about half the data, a little faster</span>
+    </div>
+    <p class="hint">The phone that films: scan the code, tap Record, hold it still in landscape for the first second (the calibration). Other phones: Manipulate. Nothing is drawn while recording yet: open the recording when it is saved.</p>
+  </section>
+
+  <section class="rt-phones">
+    <h2 class="label">Phones</h2>
+    <div class="qr" id="qr"></div>
+    <div class="phone-url mono" id="phone-url"></div>
+    <p class="hint" id="phones">–</p>
+  </section>
+
+  <section class="rt-recs">
+    <h2 class="label">Recordings</h2>
+    <div class="rt-list" id="rt-list"></div>
+  </section>
+
+  <section class="rt-sites">
+    <h2 class="label">Site</h2>
+    <div class="opts" id="site-list"></div>
+    <p class="hint">Another site leaves realtime: the recording is saved, the model released.</p>
+  </section>
+</main>
+<script type="module" src="/static/live/realtime.js"></script>
+</body>
+</html>

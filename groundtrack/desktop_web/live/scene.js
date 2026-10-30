@@ -255,17 +255,25 @@ const REFRAME_GLSL = /* glsl */`
 
 export const VIDEO_MODES = ["reframed", "glued", "off"];
 
-/* tint: the virtual camera's violet ([r, g, b]; with several spots each has its own tint, 08 b). */
+/* tint: the virtual camera's violet ([r, g, b]; with several spots each has its own tint, 08 b).
+   video: the blurred clip, or a canvas (a recording while it records: its newest blurred picture,
+   10 step 3; setSource puts its video in once there is one). */
+function sourceTexture(src) {
+  const isCanvas = typeof HTMLCanvasElement !== "undefined" && src instanceof HTMLCanvasElement;
+  const tex = isCanvas ? new THREE.CanvasTexture(src) : new THREE.VideoTexture(src);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  return tex;
+}
+
 export function makeCameras(sc, video, { tint = VIOLET_RGB } = {}) {
   const depth = Math.min(10, Math.max(3, 0.12 * sc.R_max));
   const ghost = new CameraLines(sc, { color: [1, 1, 1], width: 1, opacity: 0.55, dashedFootprint: false, depth });
   const virt = new CameraLines(sc, { color: tint, width: 1, opacity: 0.95, dashedFootprint: true, axes: true, depth });
   // the blurred video in the virtual camera's image plane: re-framed (the recording stays put in
   // the world, the plane is a window over it) or glued (the old way: the picture turns with the hand)
-  const tex = new THREE.VideoTexture(video);
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.minFilter = THREE.LinearFilter;
-  tex.generateMipmaps = false;
+  let tex = sourceTexture(video);
   const c = imageCorners(sc, depth * 1.0005);
   const pg = new THREE.BufferGeometry();
   pg.setAttribute("position", new THREE.BufferAttribute(Float32Array.from([...c[0], ...c[1], ...c[2], ...c[3]]), 3));
@@ -292,7 +300,8 @@ export function makeCameras(sc, video, { tint = VIOLET_RGB } = {}) {
   plane.renderOrder = 4;
   ghost.update({ R_wc: sc.R_wc, R_cw: sc.R_cw, C: sc.C });
   return {
-    ghost, virt, plane, depth, texture: tex, uH,
+    ghost, virt, plane, depth, uH,
+    get texture() { return tex; },
     group: (() => { const g = new THREE.Group(); g.add(ghost.group, virt.group, plane); return g; })(),
     update(cam) {
       virt.update(cam);
@@ -308,6 +317,13 @@ export function makeCameras(sc, video, { tint = VIOLET_RGB } = {}) {
       setH();
     },
     get videoMode() { return mode; },
+    /** Another picture in the plane (a canvas or a video). */
+    setSource(src) {
+      const old = tex;
+      tex = sourceTexture(src);
+      pm.map = tex;
+      old.dispose();
+    },
     materials() { return [...ghost.materials(), ...virt.materials(), pm]; },
     dispose() { ghost.dispose(); virt.dispose(); pg.dispose(); pm.dispose(); tex.dispose(); },
   };

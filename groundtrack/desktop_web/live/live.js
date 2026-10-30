@@ -28,6 +28,16 @@
    cleared): the cameras it changed get their layers back; Clear wipes all, X (or the camera's x)
    one camera. The passes' menu (L) loads a pass's layers back onto its cameras. Files always stay.
 
+   Realtime (plans/live_controller/10, step 3; /live?realtime=1, the site picker's "Realtime ·
+   now"): one phone records, this laptop tracks it, and this view draws it as it is tracked. The
+   mode is turned on here; each recording opens as its own site once the laptop has calibrated it
+   (Realtime, the camera called by its time). Its points come as they are tracked (whole frames
+   only), its newest blurred picture fills the video plane, and the clock is now (no seek, no end):
+   the other phones turn its camera as on any clip. The recorder's Stop: its last points, the clock
+   runs to the end and the pass is saved (n = the package's points), its video takes the plane's
+   place; the next recording opens once it is calibrated. People that come out the wrong height
+   (the people check) turn the drag grid on: the ground as the camera puts it.
+
    The space clutch (08 a): while held (the phone's SPACE button, or M held on the laptop for the
    mouse) turning tilts the drawn crowd about the start camera's centre, with the hand; let go,
    turning steers the camera again and its drawing stays tilted; a double-tap glides it back to
@@ -53,14 +63,14 @@
    space=pan,tilt,roll (degrees: the crowd's space turned so, with the hand), under=veil|same|dim,
    orbit=x,y,z,tx,ty,tz, f= (frame) or t= (seconds), panel=0, hud=0, ref=1, cause=1, drag=1,
    section=along|across|horizontal, slab=1, play=1, hub=0 (no phone hub), bench=1 (measure fps;
-   benchspace=1: with the clutch held). */
+   benchspace=1: with the clutch held), realtime=1 (instead of run= / site=). */
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { prepareScene, spaceMatrix } from "./projection.js";
 import { createProjectionPool, defaultWorkers } from "./projection_worker.js";
 import { makeGround, makeCameras, makeDragGrid } from "./scene.js";
-import { parseTracks, TrackView, Past } from "./tracks.js";
+import { parseTracks, appendTracks, TrackView, Past } from "./tracks.js";
 import { Timeline, fmtTime } from "./timeline.js";
 import { Section } from "./section.js";
 import { PoseLink, MouseController, PoseInput, cameraDelta, matToQuat, headMatrix, GAIN_MIN, GAIN_MAX, GAINS } from "./pose.js";
@@ -97,6 +107,12 @@ const SAVE = params.get("save") !== "0";       // passes saved by themselves (sa
 /* The sheet (09): this page renders one pass's view for its performance sheet (sheet=<pass id>,
    sw / sh: its size, build=0: only the view, layout=A|B|C) and posts it to the app; nothing else. */
 const SHEET = params.has("sheet") ? { id: params.get("sheet"), names: new Set(), busy: false } : null;
+/* Realtime (10, step 3): the recorder's recording drawn as it is tracked. RT: the laptop's status
+   (st), the recording open (id), its points so far (n), done (the recorder stopped and its last
+   points are in), the people check shown for (checked). */
+const REALTIME = params.get("realtime") === "1" && !SHEET;
+const RT = { st: null, id: null, n: 0, done: false, gone: false, opening: false, tBusy: false, pBusy: false, checked: null, refAt: 0 };
+const RT_STATUS_MS = 250, RT_TRACKS_MS = 120, RT_PREVIEW_MS = 120, RT_REF_MS = 2000;
 
 // ---------------------------------------------------------------------------- the stage
 const canvas = $("#gl");
@@ -117,7 +133,7 @@ const video = $("#video");                      // the start camera's video
 
 const S = {                                     // the view's settings
   trails: params.get("trails") === "whole" ? "whole" : "performed",
-  ground: ["A", "B", "C"].includes(params.get("ground")) ? params.get("ground") : "B",   // B: dark contours (the user's pick)
+  ground: ["A", "B", "C"].includes(params.get("ground")) ? params.get("ground") : REALTIME ? "C" : "B",   // B: dark contours (the user's pick); a recording has no aerial: C
   look: params.get("look") === "projector" ? "projector" : "laptop",
   layers: { ref: params.get("ref") === "1" || params.get("truth") === "1", drag: params.get("drag") === "1",
             video: !["0", "off"].includes(params.get("video")), cameras: true, cause: params.get("cause") === "1" },
@@ -206,16 +222,27 @@ function loading(text, bad = false) {
   if (text !== null) $("#loading-what").textContent = text;
 }
 
-/** A camera's package, fetched (nothing built yet). */
-async function fetchSpot(cam) {
+/** A camera's package, fetched (nothing built yet). live: a recording's id while it records (its
+    points so far, not its tracks.bin). */
+async function fetchSpot(cam, live = null) {
   const run = cam.run;
-  const [meta, terrainBuf, trackBuf, rules] = await Promise.all([
-    fetchOk(pkg(run, "scene.json"), "json"), fetchOk(pkg(run, "terrain.f32")), fetchOk(pkg(run, "tracks.bin")),
+  const [meta, terrainBuf, tracks, rules] = await Promise.all([
+    fetchOk(pkg(run, "scene.json"), "json"), fetchOk(pkg(run, "terrain.f32")),
+    live ? rtFetchTracks(live, 0) : fetchOk(pkg(run, "tracks.bin")),
     fetchOk(`/api/live/rules?run=${enc(run)}`, "json")]);
   if (!meta.video || !meta.video.blurred)
     throw new Error(`${cam.name}: this package's video is not blurred: it is not shown`);
+  if (live) meta.frames = tracks.head.frames;
   const aerial = await new THREE.TextureLoader().loadAsync(pkg(run, "aerial.jpg"));
-  return { meta, terrainBuf, trackBuf, rules, aerial };
+  return { meta, terrainBuf, trackBuf: live ? tracks.bytes : tracks, rules, aerial, live: live ? tracks.head : null };
+}
+
+/* A recording's points from point n0 on, while it records (the laptop's memory) or once saved (its
+   package): {head: {id, n0, n, frames (whole so far), done}, bytes (tracks.bin records)}. */
+async function rtFetchTracks(id, n0) {
+  const buf = await fetchOk(`/api/live/realtime/tracks?id=${enc(id)}&from=${n0}`);
+  const hl = new DataView(buf).getUint32(0, true);
+  return { head: JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, hl))), bytes: buf.slice(4 + hl) };
 }
 
 function spotVideo(start) {                     // the start camera: the page's <video>; others: one each
@@ -235,7 +262,10 @@ function buildSpot(raw, cam, start, tintI) {
   const data = parseTracks(trackBuf, meta);
   const tint = TINTS[tintI], rgb = hexRGB(tint), vid = spotVideo(start);
   const ground = makeGround(sc, heights, aerial);
-  const cams = makeCameras(sc, vid, { tint: rgb });
+  // a recording while it records: its newest blurred picture (rtPreview) instead of a video
+  const canvas = raw.live ? Object.assign(document.createElement("canvas"), { width: 640, height: 360 }) : null;
+  if (canvas) canvas.getContext("2d").fillRect(0, 0, canvas.width, canvas.height);
+  const cams = makeCameras(sc, canvas || vid, { tint: rgb });
   const tracks = new TrackView(sc, data, rules, (meta.tracks || {}).classes || {}, { tint: rgb });
   tracks.computeReference();
   tracks.setMode("performed");
@@ -248,7 +278,8 @@ function buildSpot(raw, cam, start, tintI) {
   group.add(ground.mesh, cams.group, drag.group, tracks.group);
   const inp = new PoseInput(sc);
   return { name: cam.name, cam, start, run: cam.run, meta, sc, data, rules, ground, cams, tracks, drag, inp,
-           group, offset, tint, tintI, rgb, video: vid, pool: null, player: null, frameShown: -1, poseVersion: -1, joinFrame: 0,
+           group, offset, tint, tintI, rgb, video: vid, growing: !!raw.live, canvas,
+           pool: null, player: null, frameShown: -1, poseVersion: -1, joinFrame: 0,
            spaceKey: new Float64Array(9).fill(NaN), camKey: new Float64Array(12).fill(NaN), rebuild: false,
            wholeLocal: null, wholeOut: null, whole: { busy: false, again: false, lastMs: 0, n: 0, sumMs: 0, calls: 0, startMs: 0 } };
 }
@@ -297,17 +328,19 @@ function addSpot(cam, start = false) {
   const job = (async () => {
     let s = back, t1 = t0, t2 = t0;
     if (!s) {
-      const raw = await fetchSpot(cam);
+      const raw = await fetchSpot(cam, start && L.live ? L.live : null);
       t1 = performance.now();
       if (gone()) { raw.aerial.dispose(); return null; }
       if (start) L.origin0 = raw.meta.origin || null;
       s = buildSpot(raw, cam, start, tintI);
       t2 = performance.now();
     }
-    s.video.src = pkg(cam.run, "video.mp4");     // the blurred clip from the package only
-    await videoReady(s.video);
+    if (!s.growing) {                              // (a recording while it records has no video yet)
+      s.video.src = pkg(cam.run, "video.mp4");     // the blurred clip from the package only
+      await videoReady(s.video);
+    }
     const t3 = performance.now();
-    const fail = s.video.error;
+    const fail = !s.growing && s.video.error;
     if (gone() || fail) {
       if (!back) disposeSpot(s);
       else if (L.parked.includes(back)) stopVideo(back);
@@ -327,7 +360,7 @@ function addSpot(cam, start = false) {
       s.inp.setGain(1);
       s.inp.setScale(1);
     }
-    timeline.add(s, { video: s.video, fps: s.meta.fps, frames: s.meta.frames });
+    timeline.add(s, { video: s.video, fps: s.meta.fps, frames: s.meta.frames, live: s.growing });
     s.joinFrame = timeline.time > 0 ? timeline.frameOf(s) : 0;          // it joins the pass now
     s.tracks.perfFrame = s.joinFrame - 1;
     L.spots.push(s);
@@ -477,8 +510,9 @@ function sceneChanged() {
 }
 
 /* The site of `run` (its start camera): the old site's pass saved and ended, its cameras gone;
-   the phones' cameras are released (the hub sees a new start camera). */
-async function openSite(run) {
+   the phones' cameras are released (the hub sees a new start camera). live: the recording's id
+   while it records (realtime: its start camera grows). */
+async function openSite(run, { live = null } = {}) {
   loading("the site");
   const info = await fetchOk(`/api/live/site?run=${enc(run)}`, "json");
   const start = info.cameras.find((c) => c.name === info.start_spot);
@@ -487,7 +521,7 @@ async function openSite(run) {
         groups: info.groups || [], startName: info.start_spot, startRun: start.run, origin0: null, notes: info.notes || [],
         spots: [], focus: null, locked: null, players: [], section: null, loading: new Map(), tints: new Map(),
         loadTimes: {}, extra: new Map(), keep: info.start_spot, solo: null, framed: null, boxes: new Set(), lastTint: new Map(), parked: [], ghosts: new Set(),
-        removing: new Map(), released: new Map(), markNext: null };
+        removing: new Map(), released: new Map(), markNext: null, live };
   P.plays = 0;
   lastStart[L.site] = start.run;
   loading("the machine at rest");
@@ -503,7 +537,8 @@ async function openSite(run) {
   syncSites();
   setView(S.view === 1 ? 1 : 2, false);
   if (info.notes && info.notes.length) note(info.notes.join("\n"));
-  history.replaceState(null, "", `/live?run=${enc(start.run)}${location.search.replace(/^\?/, "&").replace(/&run=[^&]*/g, "").replace(/&site=[^&]*/g, "")}`);
+  if (!REALTIME)                                  // (realtime: the page stays the mode's, a reload comes back to it)
+    history.replaceState(null, "", `/live?run=${enc(start.run)}${location.search.replace(/^\?/, "&").replace(/&run=[^&]*/g, "").replace(/&site=[^&]*/g, "")}`);
   refreshPasses();
   publishState(true);
   return L;
@@ -926,6 +961,9 @@ function passDrawings(p) {
    when it was saved before. The drawing is taken now; the saves go one after another. */
 function savePass(p) {
   if (!SAVE || bench.on || !L || R) return P.saving;
+  // a recording while it records: its pass is saved once its points are all there (a pass's .bin
+  // holds the package's n), at the recorder's Stop
+  if (L.spots.some((s) => s.growing)) return P.saving;
   const dr = passDrawings(p);
   if (!dr.size) return P.saving;
   const data = {}, cameras = [];
@@ -1800,8 +1838,9 @@ function setTrails(m) {
   syncPanel();
 }
 
-/** What a camera draws: S.trails; with several cameras the whole clip only for the focus camera. */
-const trailsOf = (s) => (S.trails === "whole" && (L.spots.length <= 1 || WHOLE_ALL_SPOTS || s === L.focus) ? "whole" : "performed");
+/** What a camera draws: S.trails; with several cameras the whole clip only for the focus camera; a
+    recording while it records: performed (its whole is not there yet). */
+const trailsOf = (s) => (S.trails === "whole" && !s.growing && (L.spots.length <= 1 || WHOLE_ALL_SPOTS || s === L.focus) ? "whole" : "performed");
 
 /* A camera to its mode. Its performed drawing of the pass stays while it shows the whole clip (back
    in performed it goes on from where it is). A camera that leaves the whole clip with several in
@@ -2149,11 +2188,26 @@ function syncSites() {
     b.textContent = `${e.title} · ${e.cameras}`;
     b.title = `${e.title}: ${e.cameras} camera${e.cameras === 1 ? "" : "s"}; starts on ${e.start_id}` +
               (e.rmse != null ? ` (the best calibrated, ${e.rmse} m)` : "") + ", or the one used last";
-    b.setAttribute("aria-pressed", String(!!L && e.site === L.site));
-    b.onclick = () => switchSite(e.site);
+    b.setAttribute("aria-pressed", String(!REALTIME && !!L && e.site === L.site));
+    // (from realtime: the site's own page, which turns the mode off)
+    b.onclick = () => { if (REALTIME) location.href = `/live?site=${enc(e.site)}`; else switchSite(e.site); };
     el.appendChild(b);
   }
-  $("#sites").hidden = !sites.length;
+  // realtime (plans/live_controller/10): one phone films, this laptop tracks and draws it now
+  const rt = document.createElement("button");
+  rt.textContent = "Realtime · now";
+  rt.title = "One phone films, this laptop tracks it and draws it here as it comes; the other phones turn its camera";
+  rt.setAttribute("aria-pressed", String(REALTIME));
+  rt.onclick = () => { if (!REALTIME) location.href = "/live?realtime=1"; };
+  el.appendChild(rt);
+  if (REALTIME) {                                 // the recorder's frame size, the recordings
+    const more = document.createElement("button");
+    more.textContent = "Recorder · recordings";
+    more.title = "The realtime page: the recorder's frame size (1080p / 720p) and the saved recordings";
+    more.onclick = () => { location.href = "/live/realtime"; };
+    el.appendChild(more);
+  }
+  $("#sites").hidden = false;
 }
 
 /** The passes: how many are in the view, the saved ones (load / delete). */
@@ -2514,14 +2568,17 @@ function syncHud() {
   if (!L || !L.focus || $("#hud").hidden) return;
   const fs = L.focus, inp = fs.inp, d = cameraDelta(fs.sc, inp.cam), f = timeline.frameOf(fs);
   const sgn = (v, n = 1) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(n)}`;
-  $("#h-time").textContent = `${fmtTime(timeline.time)}  f ${f}/${fs.meta.frames}${timeline.playing ? "" : timeline.atEnd ? "  end" : "  paused"}`;
+  $("#h-time").textContent = `${fmtTime(timeline.time)}  f ${f}/${fs.meta.frames}` +
+    (timeline.live ? (timeline.playing ? "  now" : "  paused · Space: now") : timeline.playing ? "" : timeline.atEnd ? "  end" : "  paused");
   $("#h-pan").textContent = `${sgn(d.pan)}°`;
   $("#h-tilt").textContent = `${sgn(d.tilt)}°`;
   $("#h-roll").textContent = `${sgn(d.roll)}°`;
   $("#h-pos").textContent = d.move.map((v) => sgn(v, 2)).join(" ") + " m";
   $("#h-gain").textContent = `${inp.gain.toFixed(2)}×`;
   $("#h-scale").textContent = `1 m = ${inp.scale} m`;
-  $("#h-spot").textContent = `${fs.name} · ${fs.player != null ? "player " + fs.player : "no phone"}` + (L.spots.length > 1 ? " · Tab: next" : "");
+  const st = fs.growing && RT.st && RT.st.id === RT.id ? RT.st : null;          // the recorder's, while it records
+  $("#h-spot").textContent = `${fs.name} · ${fs.player != null ? "player " + fs.player : "no phone"}` + (L.spots.length > 1 ? " · Tab: next" : "") +
+    (st ? ` · tracking ${st.fps_tracked} fps · ${st.lag_ms ?? "–"} ms` + (st.lost ? " · the recorder dropped out" : "") : "");
   const hub = link ? (link.status === "connected" ? `hub · ${hubInfo ? hubInfo.phones : 0} phone${hubInfo && hubInfo.phones === 1 ? "" : "s"}` : `hub ${link.status}`) : "no hub";
   const r = inp.src && inp.rates[inp.src];
   const hz = r ? ` ${performance.now() - r.last > 1500 ? 0 : Math.round(r.hz)} Hz` : "";     // 0 when it went quiet
@@ -2774,6 +2831,143 @@ const bench = {
   },
 };
 
+// ---------------------------------------------------------------------------- realtime (10, step 3)
+/** The recording being drawn as it records (or just stopped), or null. */
+const rtSpot = () => (L && L.spots.find((s) => s.growing)) || null;
+
+/* The mode on (the hub, the model: as the realtime page does) and the three polls: the laptop's
+   status, the points, the picture. */
+async function rtBegin() {
+  let longSide = 1920;
+  try { longSide = Number(localStorage.getItem("motus-rt-long-side")) || 1920; } catch {}
+  try {
+    RT.st = await postJson("/api/live/realtime", { action: "start", long_side: [1920, 1280].includes(longSide) ? longSide : 1920 });
+  } catch (e) { loading(`Realtime did not start: ${e.message}`, true); return; }
+  rtWaiting();
+  rtStatus();
+  rtTracks();
+  rtPreview();
+}
+
+/** The laptop's status: a calibrated recording not open yet opens (the last one's pass saved first). */
+async function rtStatus() {
+  try { RT.st = await fetchOk("/api/live/realtime?light=1", "json"); } catch { RT.st = null; }
+  const st = RT.st;
+  if (st && RT.id && !RT.done && st.saved && st.saved.id === RT.id && !st.saved.complete) RT.gone = true;   // nothing to draw
+  if (st && st.recording && st.calibrated && st.id && st.id !== RT.id && !RT.opening && !R && (!RT.id || RT.done || RT.gone))
+    rtOpen(st);
+  if (st) rtCheck(st);
+  if (!L) rtWaiting();
+  setTimeout(rtStatus, RT_STATUS_MS);
+}
+
+async function rtOpen(st) {
+  RT.opening = true;
+  try {
+    await openSite(st.run, { live: st.id });
+    RT.id = st.id; RT.n = L.spots[0].data.n; RT.done = RT.gone = false;
+    loading(null);
+    $("#loading").classList.remove("rt-wait");
+    timeline.play();                               // now
+    flash(`Realtime · ${L.spots[0].name}`);
+  } catch (e) {
+    note(`Realtime: ${e.message}`);                // (again at the next status: its package may be a moment late)
+  } finally { RT.opening = false; }
+}
+
+/** No recording open yet: what the laptop waits for (the panel stays usable). */
+function rtWaiting() {
+  const st = RT.st, url = $("#phone-url").textContent;
+  const text = !st || st.mode === "off" ? "Realtime · starting"
+    : st.mode === "error" ? `Realtime · the model did not load: ${st.error}`
+    : st.mode === "loading" ? "Realtime · the model is loading"
+    : st.recording && !st.calibrated ? "Realtime · recording: the phone held still for a second calibrates it"
+    : `Realtime · waiting for a recorder: on a phone open ${url || "the phone link (panel)"}, press Record`;
+  loading(text, !!st && st.mode === "error");
+  $("#loading").classList.add("rt-wait");
+}
+
+/** The points since the last ones, whole frames only (a recording that stopped: up to its last). */
+async function rtTracks() {
+  const s = rtSpot();
+  if (s && RT.id && !RT.tBusy && !RT.opening) {
+    RT.tBusy = true;
+    const id = RT.id;
+    try {
+      const { head, bytes } = await rtFetchTracks(id, RT.n);
+      if (id === RT.id && rtSpot() === s && head.n0 === RT.n) rtGrow(s, head, bytes);
+    } catch { /* saving: its package is not there yet */ }
+    RT.tBusy = false;
+  }
+  setTimeout(rtTracks, RT_TRACKS_MS);
+}
+
+function rtGrow(s, head, bytes) {
+  if (bytes.byteLength || head.frames > s.data.frames) {
+    s.data = appendTracks(s.data, bytes, head.frames);
+    s.tracks.grow(s.data);
+    RT.n = s.data.n;
+    s.meta.frames = s.data.frames;
+    s.meta.duration_s = s.data.frames / s.meta.fps;
+    rec.camera(s.name, camInfo(s));                // the pass's recording: its points so far
+    timeline.setLive(s, s.data.frames);
+    if (S.layers.ref && performance.now() - RT.refAt > RT_REF_MS) { RT.refAt = performance.now(); s.tracks.refreshReference(); }
+    syncTitle();
+  }
+  if (head.done) rtDone(s);
+}
+
+/* The recorder stopped and the last points are in: the clock runs to the end (the pass is saved
+   there, with the package's n), the recording's video takes the picture's place. */
+async function rtDone(s) {
+  if (!s.growing) return;
+  s.growing = false;
+  RT.done = true;
+  try { s.meta = { ...(await fetchOk(pkg(s.run, "scene.json"), "json")), frames: s.data.frames }; } catch {}
+  rec.camera(s.name, camInfo(s));
+  s.tracks.refreshReference();
+  timeline.endLive(s, s.data.frames);
+  syncTitle();
+  flash("The recorder stopped · the pass is saved at the end");
+  s.video.src = pkg(s.run, "video.mp4");
+  await videoReady(s.video);
+  if (s.video.error || !L || !L.spots.includes(s)) return;
+  timeline.attach(s, s.video);
+  s.cams.setSource(s.video);
+}
+
+/** The recording's newest blurred picture into its plane (while it records). */
+async function rtPreview() {
+  const s = rtSpot();
+  if (s && RT.id && !RT.pBusy && S.layers.video) {
+    RT.pBusy = true;
+    try {
+      const r = await fetch(`/api/live/realtime/preview?id=${enc(RT.id)}`);
+      if (r.status === 200 && rtSpot() === s) {
+        const img = await createImageBitmap(await r.blob()), c = s.canvas;
+        if (c.width !== img.width || c.height !== img.height) { c.width = img.width; c.height = img.height; }
+        c.getContext("2d").drawImage(img, 0, 0);
+        img.close();
+        s.cams.texture.needsUpdate = true;
+      }
+    } catch { /* the next one */ }
+    RT.pBusy = false;
+  }
+  setTimeout(rtPreview, RT_PREVIEW_MS);
+}
+
+/* The people check (step 2): people that come out far from 1.7 m mean the height or the tilt is
+   off; the drag grid shows the ground as this camera puts it (once per recording; the phone
+   offers the fix). */
+function rtCheck(st) {
+  const c = st.recording && st.id === RT.id ? st.check : null;
+  if (!c || c.ok || RT.checked === st.id || !L) return;
+  RT.checked = st.id;
+  if (!S.layers.drag) { S.layers.drag = true; setLayers(); syncPanel(); }
+  note(`People look ${c.median_m} m tall (${c.error_pct > 0 ? "+" : ""}${c.error_pct} %): the camera's height or tilt is off · ` +
+       "the drag grid shows the ground as it is placed · the phone offers a fix (a new recording)");
+}
+
 // ---------------------------------------------------------------------------- start
 function applyParams() {
   const num = (k) => (params.has(k) ? +params.get(k) : null);
@@ -2825,37 +3019,43 @@ async function devPlayers(words) {
   resize();
   // the mouse head: its poses go through the same handler as the phone's (to the focus camera)
   mouse = new MouseController($("#stage"), onPose, { onDrag: () => {} });
+  if (!SHEET && !REALTIME) postJson("/api/live/realtime", { action: "stop" }).catch(() => {});   // a site: realtime off
   try { sites = (await fetchOk("/api/live/sites", "json")).sites || []; } catch { sites = []; }
   let run = params.get("run");
   if (!run && params.has("site")) {
     const e = sites.find((x) => x.site === params.get("site"));
     if (e) run = e.start_run;
   }
-  if (!run) { loading("No run: open Live from a run in the app.", true); return; }
-  try {
-    await openSite(run);
-  } catch (e) {
-    loading(e.message, true);
-    if (SHEET) sheetAnswer(sheetFail(e.message));
-    return;
+  if (REALTIME) {                                  // the recordings open as they come (rtStatus)
+    syncSites();
+    rtBegin();
+  } else {
+    if (!run) { loading("No run: open Live from a run in the app.", true); return; }
+    try {
+      await openSite(run);
+    } catch (e) {
+      loading(e.message, true);
+      if (SHEET) sheetAnswer(sheetFail(e.message));
+      return;
+    }
   }
   resize();
-  if (params.has("players")) await devPlayers(params.get("players"));
-  if (params.has("focus")) {
+  if (L && params.has("players")) await devPlayers(params.get("players"));
+  if (L && params.has("focus")) {
     const c = findCamera(params.get("focus"), L.cams), s = c && spotOf(c.name);
     if (s) setFocus(s, false);
   }
-  if (params.has("players") || params.has("focus")) setView(S.view === 1 ? 1 : 2, false);
-  applyParams();
+  if (L && (params.has("players") || params.has("focus"))) setView(S.view === 1 ? 1 : 2, false);
+  if (L) applyParams();
   requestAnimationFrame(frame);
-  loading(null);
+  if (L) loading(null);
   publishState();
   startHub();
   window.live = { get L() { return L; }, S, P, past, timeline, input, mouse, setView, setTrails, setGain, setScale, setSmooth, zero, bench,
                   get link() { return link; }, spacePress, spaceRelease, spaceLevel, toggleCause, cycleUnder, onControl, onPose,
                   setFocus, setPlayers, panels, camera, orbit, undoPass, clearPasses, clearCamera, collageLayers, setSolo, setFramed, toggleBox, toggleBoxes, markCamera, removeCamera, openCamMenu, loadPass, deletePass, switchSite, setStack,
                   refreshPasses, get sites() { return sites; }, startReplay, stopReplay, finishReplay, checkReplay, renderPass,
-                  passExport, passSheet, sheetView, collageSheet, collageExport, get rec() { return rec; }, get R() { return R; }, ready: true };
+                  passExport, passSheet, sheetView, collageSheet, collageExport, get rec() { return rec; }, get R() { return R; }, RT, ready: true };
   if (SHEET) sheetPage();
   if (params.get("bench") === "1") setTimeout(() => bench.run(+(params.get("secs") || 8)), 1500);
 })();

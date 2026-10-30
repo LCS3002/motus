@@ -1178,9 +1178,209 @@ def test_phone_gain_runs_0_1_to_3_and_its_ticks_sit_on_their_values():
         assert p == pytest.approx(slider / 1000, abs=0.001), cls
 
 
-def test_phone_has_no_record_button():
-    """Every pass records by itself (the laptop): the phone neither shows nor sends record."""
+def test_phone_sends_no_record_and_its_record_button_is_realtime_only():
+    """Every pass records by itself (the laptop): the phone never sends a record control. Its
+    Record button is the realtime recorder's (record.js, plans/live_controller/10), hidden
+    unless the hub says the laptop is in the realtime mode."""
     html = (live_hub.PHONE_WEB / "index.html").read_text(encoding="utf-8")
     js = (live_hub.PHONE_WEB / "phone.js").read_text(encoding="utf-8")
-    assert 'id="rec"' not in html and "Record" not in html
-    assert '"record"' not in js and "ui.rec" not in js
+    assert '"record"' not in js
+    assert re.search(r'<button id="rec"[^>]*\bhidden\b[^>]*>Record</button>', html)
+    assert "showRealtime(m.realtime === true)" in js
+
+
+# --------------------------------------------------------------------------- realtime recorder
+def frame_bytes(head=None, jpeg=b"\xff\xd8\xff\xe0jpegdata", raw_head=None):
+    h = raw_head if raw_head is not None else json.dumps(
+        {"seq": 1, "t": 3.5, "w": 640, "h": 360, "q": [1.5, 0, 0, 0], **(head or {})}).encode()
+    return len(h).to_bytes(4, "little") + h + jpeg
+
+
+def test_recorder_frames_are_checked():
+    head, jpeg = live_hub.clean_frame(frame_bytes({"extra": "x", "seq": 7}))
+    assert head == {"seq": 7, "t": 3.5, "w": 640, "h": 360, "q": [1.0, 0, 0, 0], "skip": None}
+    assert jpeg == b"\xff\xd8\xff\xe0jpegdata"
+    assert live_hub.clean_frame(frame_bytes({"q": None}))[0]["q"] is None
+    assert live_hub.clean_frame(frame_bytes({"skip": 12}))[0]["skip"] == 12   # the phone's count
+    for odd in (-1, 2 ** 31, 1.5, True, "3", [1]):                # odd counts: left out, not refused
+        assert live_hub.clean_frame(frame_bytes({"skip": odd}))[0]["skip"] is None
+    bad = [frame_bytes(jpeg=b"GIF89a"), frame_bytes({"w": 8}), frame_bytes({"h": 5000}),
+           frame_bytes({"w": 640.0}), frame_bytes({"w": True}), frame_bytes({"seq": -1}),
+           frame_bytes({"t": "now"}), frame_bytes({"t": None}), frame_bytes({"q": [1, 0, 0]}),
+           frame_bytes({"q": [0, 0, 0, 0.1]}), frame_bytes({"q": [5, 0, 0, 0]}),
+           frame_bytes(raw_head=b"{not json"), frame_bytes(raw_head=b"[1, 2]"),
+           frame_bytes(raw_head=b"x" * 2000), b"\x00\x00", "text",
+           (10 ** 6).to_bytes(4, "little") + b"{}" + b"\xff\xd8",
+           frame_bytes(jpeg=b"\xff\xd8" + b"0" * live_hub.MAX_FRAME)]
+    for b in bad:
+        assert live_hub.clean_frame(b) is None, b[:40]
+
+
+class FakeSink:
+    """What the hub hands frames to (live_track.LiveTracker's calls)."""
+
+    long_side = 1280                                              # the laptop's frame size (720p)
+
+    def __init__(self):
+        self.calls, self.frames = [], []
+
+    def begin(self, w, h, resume=False, **kw):
+        if w < 64:
+            raise ValueError("frame size out of range")
+        self.calls.append(("begin", w, h, resume, *([kw] if kw else [])))
+        return {"id": "20261030-120000", "resumed": resume}
+
+    def frame(self, head, jpeg):
+        self.frames.append((head, jpeg))
+        return True
+
+    def end(self):
+        self.calls.append(("end",))
+
+    def lost(self):
+        self.calls.append(("lost",))
+
+    def status(self):
+        return {"mode": "ready", "recording": bool(self.calls) and self.calls[-1][0] == "begin"}
+
+
+def recorder(h, pid="rec-page-aaaa"):
+    return connect(f"wss://127.0.0.1:{h.bound['lan']}/ws/record?k={h.token}&id={pid}",
+                   ssl=tls(h), open_timeout=5, max_size=2 ** 20)
+
+
+def closed_with(ws):
+    with pytest.raises(ConnectionClosed) as e:
+        while True:
+            ws.recv(timeout=3)
+    return e.value.rcvd.code
+
+
+def test_recorder_only_in_the_realtime_mode_and_phones_are_told(hub):
+    with pytest.raises(InvalidStatus) as e:
+        recorder(hub)
+    assert e.value.response.status_code == 409
+    with pytest.raises(InvalidStatus) as e:                       # the code first
+        connect(f"wss://127.0.0.1:{hub.bound['lan']}/ws/record?k=nope", ssl=tls(hub))
+    assert e.value.response.status_code == 403
+    assert hub.info()["realtime"] is False
+    with phone(hub) as p:
+        assert "realtime" not in recv(p, "hub")
+        hub.set_recorder(FakeSink())
+        assert recv(p, "hub", pred=lambda m: m.get("realtime") is True)["player"] == 1
+        assert hub.info()["realtime"] is True and hub.info()["recorder"] is False
+        with recorder(hub) as r:
+            assert until(lambda: hub.info()["recorder"])
+            hub.set_recorder(None)                                # the laptop leaves realtime
+            assert closed_with(r) == live_hub.CLOSE_REALTIME_OFF
+        assert recv(p, "hub", pred=lambda m: "realtime" not in m)
+        assert until(lambda: not hub.info()["recorder"])
+    with pytest.raises(InvalidStatus) as e:
+        recorder(hub)
+    assert e.value.response.status_code == 409
+
+
+def test_recorder_start_frames_stop_and_drop_out(hub):
+    sink = FakeSink()
+    hub.set_recorder(sink)
+    with view(hub) as v, recorder(hub) as r:
+        assert recv(r, "rec") == {"type": "rec", "hello": True, "long_side": 1280}   # the size first
+        r.send(frame_bytes())                                     # before start: not taken
+        r.send(json.dumps({"type": "rec", "action": "start", "w": 10, "h": 10}))
+        assert recv(r, "rec", pred=lambda m: "error" in m)["error"] == "frame size out of range"
+        r.send(json.dumps({"type": "rec", "action": "start", "w": 640.5, "h": 360}))
+        assert "error" in recv(r, "rec", pred=lambda m: "error" in m)
+        r.send(json.dumps({"type": "rec", "action": "start", "w": 640, "h": 360}))
+        assert recv(r, "rec", pred=lambda m: "started" in m) == {
+            "type": "rec", "started": "20261030-120000", "resumed": False}
+        for i in range(5):
+            r.send(frame_bytes({"seq": i, "q": [0, 0, 0, 1]}))
+        r.send(frame_bytes(jpeg=b"nope"))
+        r.send(b"\x00")
+        r.send("{not json")
+        r.send(json.dumps({"type": "ping", "id": 3}))
+        assert recv(r, "pong") == {"type": "pong", "id": 3}
+        assert [h["seq"] for h, _ in sink.frames] == [0, 1, 2, 3, 4]
+        assert sink.frames[0][0]["q"] == [0, 0, 0, 1.0]
+        st = recv(r, "rec", pred=lambda m: "mode" in m)           # the tracker's status
+        assert st == {"type": "rec", "mode": "ready", "recording": True}
+        r.send(json.dumps({"type": "rec", "action": "stop"}))
+        assert recv(r, "rec", pred=lambda m: "stopped" in m)["stopped"] is True
+        assert sink.calls[-1] == ("end",)
+        r.send(frame_bytes())                                     # after stop: not taken
+        r.send(json.dumps({"type": "rec", "action": "start", "w": 640, "h": 360, "resume": True}))
+        recv(r, "rec", pred=lambda m: "started" in m)
+        r.send(json.dumps({"type": "rec", "action": "stop"}))       # recalibrate: the phone's height
+        recv(r, "rec", pred=lambda m: "stopped" in m)
+        r.send(json.dumps({"type": "rec", "action": "start", "w": 640, "h": 360,
+                           "height_m": "tall", "tilt_offset": 0}))
+        assert recv(r, "rec", pred=lambda m: "error" in m)["error"] == "height_m: a number"
+        r.send(json.dumps({"type": "rec", "action": "start", "w": 640, "h": 360,
+                           "height_m": 1.65, "tilt_offset": -2, "extra": 1}))
+        recv(r, "rec", pred=lambda m: "started" in m)
+        with pytest.raises(TimeoutError):                         # nothing reaches the view
+            recv(v, "pose", timeout=0.3)
+    assert until(lambda: ("lost",) in sink.calls)                 # left while recording
+    assert sink.calls == [("begin", 640, 360, False), ("end",), ("begin", 640, 360, True),
+                          ("end",), ("begin", 640, 360, False, {"height_m": 1.65, "tilt_offset": -2.0}),
+                          ("lost",)]
+    assert len(sink.frames) == 5
+    assert logged(hub, r"recorder \(127\.0\.0\.1\) left after \d+ s: 5 frames")
+    text = "\n".join(hub.logs)
+    assert "recording started: 20261030-120000" in text and "jpegdata" not in text
+    assert hub.token not in text and "rec-page-aaaa" not in text
+
+
+def test_one_recorder_at_a_time_the_same_page_takes_over(hub):
+    hub.set_recorder(FakeSink())
+    with recorder(hub, "rec-page-aaaa") as first:
+        assert until(lambda: hub.info()["recorder"])
+        with recorder(hub, "rec-page-bbbb") as other:
+            assert closed_with(other) == live_hub.CLOSE_RECORDER
+        with recorder(hub, "rec-page-aaaa") as again:             # the same page, back
+            assert closed_with(first) == live_hub.CLOSE_REPLACED
+            again.send(json.dumps({"type": "ping", "id": 1}))
+            assert recv(again, "pong")["id"] == 1
+    assert logged(hub, "refused a recorder from 127.0.0.1: one is connected")
+
+
+def test_a_phone_message_over_4096_bytes_closes_it(hub):
+    with phone(hub) as p:
+        recv(p, "hub")
+        p.send(json.dumps({"type": "zero", "pad": "x" * 5000}))
+        assert closed_with(p) == 1009
+
+
+def test_recorder_frame_header_and_size_in_node():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    src = (live_hub.PHONE_WEB / "record.js").as_uri()
+    code = (f'import {{frameHeader, frameSize, cleanHeight, horizon}} from "{src}";\n'
+            "const h = frameHeader({seq: 3, t: 1.25, w: 1920, h: 1080, q: null, skip: 4});\n"
+            "console.log(JSON.stringify({head: [...h], sizes: [[1920, 1080], [3840, 2160],"
+            " [1080, 1920], [1280, 720], [1001, 563], [4032, 3024]]"
+            ".map(([w, h]) => frameSize(w, h)),"
+            " small: [[1920, 1080, 1280], [1280, 720, 1280], [1080, 1920, 1280], [1920, 1080, 4000],"
+            " [1920, 1080, 10], [1920, 1080, 'x']].map(([w, h, l]) => frameSize(w, h, l)),"
+            " heights: ['1.73', null, '', 'x', 9, 0.1, 1.5 + 0.05 + 0.05].map(cleanHeight),"
+            " level: [horizon(-10, 2), horizon(0, 0), horizon(18.684, -3)]}));")
+    r = subprocess.run([node, "--input-type=module", "-e", code], capture_output=True,
+                       encoding="utf-8", timeout=60, check=False)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    head, jpeg = live_hub.clean_frame(bytes(out["head"]) + b"\xff\xd8\xff\xd9")
+    assert head == {"seq": 3, "t": 1.25, "w": 1920, "h": 1080, "q": None, "skip": 4}
+    assert jpeg == b"\xff\xd8\xff\xd9"
+    assert out["sizes"] == [[1920, 1080], [1920, 1080], [1080, 1920], [1280, 720], [1002, 564],
+                            [1920, 1440]]
+    # the laptop's choice (720p); never above 1080p, never below 320; nonsense: 1080p
+    assert out["small"] == [[1280, 720], [1280, 720], [720, 1280], [1920, 1080], [320, 180],
+                            [1920, 1080]]
+    # the remembered height (step 2): in range, to the cm; nothing or nonsense: 1.5 m
+    assert out["heights"] == [1.73, 1.5, 1.5, 1.5, 5, 0.3, 1.6]
+    # the level: 10 deg down puts the horizon above the middle (tan 10 / tan of the half height);
+    # tilted up by the half height, it is at the bottom edge; rolled clockwise, it turns back
+    a, b, c = out["level"]
+    assert a["turn"] == -2 and a["up"] == pytest.approx(math.tan(math.radians(10)) * 1597.7 / 540)
+    assert b["up"] == 0 and c["turn"] == 3 and c["up"] == pytest.approx(-1, abs=1e-3)

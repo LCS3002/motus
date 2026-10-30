@@ -513,7 +513,70 @@ class DesktopApp(App):
                 self._hub.stop()
             return self._hub.info()
 
+    # realtime (plans/live_controller/10): one phone films, the laptop tracks
+    _realtime = None                         # live_track.LiveTracker while the mode is on
+
+    def live_realtime(self, body: dict) -> dict:
+        """The realtime mode: start (the hub too; the model loads in the background), stop (the
+        recording saved, the model released: picking another site), end (the recording only),
+        size (long_side 1920 or 1280: the next recording's frames; start takes it too), status.
+        Always with the recordings (runs/live/, newest first), unless "light" (the Live view's
+        poll: the status only)."""
+        from .live_track import LiveTracker, list_recordings
+
+        action = body.get("action", "status")
+        with self._hub_lock:
+            if action == "start":
+                if self._hub is None:
+                    from .live_hub import LiveHub
+
+                    self._hub = LiveHub(**self.hub_options)
+                self._hub.start()
+                if self._realtime is None:
+                    self._realtime = LiveTracker(self.root)
+                if body.get("long_side") is not None:
+                    self._realtime.set_long_side(body["long_side"])
+                self._realtime.load()
+                self._hub.set_recorder(self._realtime)
+            elif action == "stop" and self._realtime is not None:
+                rt, self._realtime = self._realtime, None
+                if self._hub is not None:
+                    self._hub.set_recorder(None)
+                rt.end()
+                threading.Thread(target=rt.close, name="rt-close", daemon=True).start()
+            elif action == "end" and self._realtime is not None:
+                self._realtime.end()
+            elif action == "size" and self._realtime is not None:
+                self._realtime.set_long_side(body.get("long_side"))
+            elif action not in ("start", "stop", "end", "size", "status"):
+                raise ValueError("action: start, stop, end, size or status")
+            st = self._realtime.status() if self._realtime is not None else {"mode": "off"}
+        if body.get("light"):
+            return st
+        return {**st, "recordings": list_recordings(self.root)}
+
+    def live_realtime_tracks(self, rid: str, n0: int) -> bytes:
+        """A recording's points from n0 on for the Live view (step 3): [u32 header length][the
+        header JSON (live_track.LiveTracker.tracks_since)][TRACK_DTYPE records]. A finished
+        recording's come from its package, the realtime mode on or not."""
+        import struct
+
+        from .live_track import package_tracks
+
+        rt = self._realtime
+        head, data = rt.tracks_since(rid, n0) if rt is not None else package_tracks(self.root, rid, n0)
+        h = json.dumps(head).encode()
+        return struct.pack("<I", len(h)) + h + data
+
+    def live_realtime_preview(self, rid: str) -> bytes | None:
+        """The recording's newest blurred picture (JPEG), while it records."""
+        rt = self._realtime
+        return rt.preview(rid) if rt is not None else None
+
     def stop_hub(self) -> None:
+        if self._realtime is not None:
+            rt, self._realtime = self._realtime, None
+            rt.close()
         if self._hub is not None:
             self._hub.stop()
 
@@ -529,6 +592,7 @@ def make_desktop_handler(app: DesktopApp, port: int):
         "/api/app/library": app.library, "/api/app/open-file": app.open_file,
         "/api/houdini/build": app.houdini_build, "/api/houdini/rebuild": app.houdini_rebuild,
         "/api/live/hub": app.live_hub, "/api/live/pass": app.live_pass_post,
+        "/api/live/realtime": app.live_realtime,
         "/api/live/render": app.live_render, "/api/live/export": app.live_export,
         "/api/live/pass/save": None, "/api/live/render/frame": None,       # binary bodies
         "/api/live/sheet": None,          # the performance sheet (09): the view's PNG in, the sheet out
@@ -576,6 +640,19 @@ def make_desktop_handler(app: DesktopApp, port: int):
                 # Live view: the page, a run's package files (video with ranges), the hub
                 elif u.path == "/live":
                     self._static("live/live.html")
+                elif u.path == "/live/realtime":
+                    self._static("live/realtime.html")
+                elif u.path == "/api/live/realtime":
+                    self._json(app.live_realtime({"action": "status", "light": q.get("light") == "1"}))
+                elif u.path == "/api/live/realtime/tracks":
+                    self._send(200, app.live_realtime_tracks(q["id"], int(q.get("from", 0) or 0)),
+                               "application/octet-stream")
+                elif u.path == "/api/live/realtime/preview":
+                    data = app.live_realtime_preview(q["id"])
+                    if data is None:
+                        self._send(204, b"", "image/jpeg")
+                    else:
+                        self._send(200, data, "image/jpeg")
                 elif u.path.startswith("/live/pkg/"):
                     self._file(app.live_file(q["run"], u.path[len("/live/pkg/"):]), 0, False)
                 elif u.path == "/api/live/info":

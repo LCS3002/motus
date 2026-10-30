@@ -310,3 +310,66 @@ input[type=range]:disabled { opacity: .35; }
 .go:active { background: var(--violet-fill); }
 .start .msg { color: var(--violet-line); min-height: 1.4em; font: var(--t-mono); }
 .start .small { font: var(--t-mono); }
+.gos { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+/* Record (realtime): white, the remote's colour; violet stays the controller's */
+.go.rec { color: var(--fg); border-color: var(--fg-2); background: transparent; }
+.go.rec:active { background: var(--press); }
+
+/* ---------- the recorder (realtime, plans/live_controller/10): the camera's preview full screen,
+   a status bar over it, Stop under the right thumb */
+.recview { position: fixed; inset: 0; z-index: 20; background: var(--bg); }
+.recview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--bg); }
+.rechead {
+  position: absolute; left: 0; right: 0; top: 0; height: calc(44px + env(safe-area-inset-top));
+  display: flex; align-items: center; gap: 14px; min-width: 0;
+  padding: env(safe-area-inset-top) max(20px, env(safe-area-inset-right)) 0 max(20px, env(safe-area-inset-left));
+  background: rgb(0 0 0 / 0.72); border-bottom: 1px solid var(--rule);
+}
+.recdot { width: 7px; height: 7px; border: 1px solid var(--muted); flex: none; }
+.recdot.on { background: var(--fg); border-color: var(--fg); }
+.recdot.lost { background: var(--bad); border-color: var(--bad); }
+.recmsg {
+  position: absolute; left: 50%; top: calc(56px + env(safe-area-inset-top)); transform: translateX(-50%);
+  margin: 0; padding: 9px 16px; max-width: 86vw; text-align: center;
+  background: var(--bg); border: 1px solid var(--fg-2); color: var(--fg); font: var(--t-mono);
+}
+.recstop {
+  position: absolute; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom));
+  min-width: 132px; min-height: 64px; padding: 0 20px; font: var(--t-label); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--fg); border: 1px solid var(--fg); background: rgb(0 0 0 / 0.6);
+}
+.recstop:active { background: var(--press); }
+.recstop:disabled { opacity: .35; }
+/* step 2: the level (the horizon as the sensors see it), hold still, the people check, height */
+.reclevel { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.lv-line { position: absolute; left: -10%; right: -10%; top: 50%; height: 0; border-top: 1px solid var(--fg-2); }
+.lv-line.level { border-top-color: var(--fg); }
+.lv-mid { position: absolute; left: 50%; top: 50%; width: 28px; height: 0; margin-left: -14px; border-top: 1px solid var(--muted); }
+.rechold {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, 18px);
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 16px;
+  background: rgb(0 0 0 / 0.6); border: 1px solid var(--fg-2);
+}
+.rechold.done { border-color: var(--fg); }
+.hold-bar { display: block; width: 120px; height: 2px; background: var(--line); }
+.hold-bar > i { display: block; height: 100%; width: 0; background: var(--fg); }
+.reccheck {
+  position: absolute; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; max-width: 92vw;
+  background: var(--bg); border: 1px solid var(--fg-2);
+}
+.reccheck p { margin: 0; font: var(--t-mono); color: var(--fg); text-align: center; }
+.reccheck .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.reccheck button, .recchip, .recstep button {
+  min-height: 44px; padding: 0 14px; font: var(--t-label); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--fg); border: 1px solid var(--fg-2); background: rgb(0 0 0 / 0.6);
+}
+.reccheck button:active, .recchip:active, .recstep button:active { background: var(--press); }
+.recchip:disabled { opacity: .35; }
+.recchip.ask { border-color: var(--fg); background: var(--press); }
+.recfoot {
+  position: absolute; left: max(20px, env(safe-area-inset-left)); bottom: max(20px, env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 8px;
+}
+.recstep { display: flex; gap: 4px; }
+.recstep button { min-width: 44px; padding: 0; font-size: 16px; }

@@ -545,13 +545,17 @@ export function project(scene, cam, X, out = null, i0 = 0, i1 = -1, mode = "grou
 // ---------------------------------------------------------------------------- speed and colour
 /** Points grouped by track, in their order within each track (frame order): {order, starts}. */
 export function trackIndex(trackId) {
-  const n = trackId.length, order = new Uint32Array(n);
-  for (let i = 0; i < n; i++) order[i] = i;
-  order.sort((a, b) => (trackId[a] - trackId[b]) || (a - b));
-  const starts = [0];
-  for (let i = 1; i < n; i++) if (trackId[order[i]] !== trackId[order[i - 1]]) starts.push(i);
-  starts.push(n);
-  return { order, starts: Uint32Array.from(n ? starts : [0]) };
+  // by id, then row: the ids sorted (few), the rows counted into their tracks (a growing recording
+  // indexes its points again with each piece: no sort of every row)
+  const n = trackId.length, order = new Uint32Array(n), rank = new Map();
+  for (let i = 0; i < n; i++) if (!rank.has(trackId[i])) rank.set(trackId[i], 0);
+  const ids = [...rank.keys()].sort((a, b) => a - b);
+  ids.forEach((id, k) => rank.set(id, k));
+  const starts = new Uint32Array(ids.length + 1), fill = new Uint32Array(ids.length);
+  for (let i = 0; i < n; i++) starts[rank.get(trackId[i]) + 1]++;
+  for (let k = 0; k < ids.length; k++) { starts[k + 1] += starts[k]; fill[k] = starts[k]; }
+  for (let i = 0; i < n; i++) order[fill[rank.get(trackId[i])]++] = i;
+  return { order, starts };
 }
 
 let _sx = new Float64Array(0), _sy = new Float64Array(0), _sz = new Float64Array(0);

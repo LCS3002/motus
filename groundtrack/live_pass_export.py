@@ -9,7 +9,7 @@ they take any run.
                              source from the kind: detected / predicted / stitched / interpolated)
                              + camera, source_track, part, kind, cause
       data/track_metrics.csv one row per drawn piece
-      data/tracks.geojson, data/predicted_gaps.geojson     EPSG:27700
+      data/tracks.geojson, data/predicted_gaps.geojson     EPSG:27700 (a realtime recording: local metres)
       data/camera_path.csv   every recorded camera row: where each camera stood and looked
       houdini/               points.csv, houdini_import.py (curves), vector_field*.csv +
                              houdini_field.py (the field of the drawn points), vector_field_master.csv
@@ -276,6 +276,12 @@ def _open_out(out: Path, run: Path):
     return pr, cfg, cfg_path, Homography.load(pr.homography_used)
 
 
+def _crs(h) -> str:
+    """The exports' coordinates: the British National Grid, or "local metres" for a realtime
+    recording (plans/live_controller/10: calibrated from the phone, flat, at (0, 0))."""
+    return "local metres" if getattr(h, "crs", None) == "local" else "EPSG:27700"
+
+
 def _write_out(pr, cfg, h, points: pd.DataFrame, cams: list[dict], path: pd.DataFrame) -> dict:
     """Points, metrics, GeoJSON, camera path, Houdini curves and field into the export folder."""
     from . import exports
@@ -284,8 +290,11 @@ def _write_out(pr, cfg, h, points: pd.DataFrame, cams: list[dict], path: pd.Data
     exports.write_points_csv(points, pr.points)
     summary = track_metrics(points)
     summary.to_csv(pr.tracks, index=False)
-    exports.write_geojson(exports.tracks_geojson(points, summary), pr.data / "tracks.geojson")
-    exports.write_geojson(exports.predicted_segments_geojson(points), pr.data / "predicted_gaps.geojson")
+    for gj, name in ((exports.tracks_geojson(points, summary), "tracks"),
+                     (exports.predicted_segments_geojson(points), "predicted_gaps")):
+        if _crs(h) != "EPSG:27700":
+            gj.pop("crs", None)                  # a realtime recording's own metres: no CRS
+        exports.write_geojson(gj, pr.data / f"{name}.geojson")
     path.to_csv(pr.data / "camera_path.csv", index=False)
     res = {"dir": str(pr.root), "points": len(points), "tracks": int(summary.shape[0]),
            "geojson": [str(pr.data / "tracks.geojson"), str(pr.data / "predicted_gaps.geojson")]}
@@ -340,7 +349,7 @@ def export_pass(run: str | Path, pass_id: str, rhino: bool = False, houdini: boo
             "complete": bool(m.get("complete")), "config": str(cfg_path),
             "cameras": [{"name": c["name"], "run": str(c["run"]), "origin": list(c["origin"]),
                          "points": c["points"], "drawn": c["drawn"]} for c in cams],
-            "points": len(points), "tracks": res["tracks"], "crs": "EPSG:27700"}
+            "points": len(points), "tracks": res["tracks"], "crs": _crs(h)}
     (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     _write_models(res, pr, cfg, h, cams, f"{cfg.site} · pass {pass_id}",
                   f"{cfg.site}_pass_{pass_id.replace('-', '_')}", rhino, houdini, build, log)
@@ -495,7 +504,7 @@ def export_layers(out_dir: str | Path, rhino: bool = False, houdini: bool = Fals
                   by_camera={ly["camera"]: camera_label(ly["camera"], ly.get("camera_id")) for ly in meta["layers"]})
     for ly, c in zip(meta["layers"], cams, strict=True):
         ly["drawn"] = c["drawn"]
-    meta.update({"config": str(cfg_path), "crs": "EPSG:27700", "points": len(points), "tracks": res["tracks"],
+    meta.update({"config": str(cfg_path), "crs": _crs(h), "points": len(points), "tracks": res["tracks"],
                  "exported": time.strftime("%Y-%m-%dT%H:%M:%S"),
                  "files": {k: v for k, v in res.items() if k not in ("dir", "points", "tracks")}})
     (out / LAYERS_FILE).write_text(json.dumps(meta, indent=1), encoding="utf-8")

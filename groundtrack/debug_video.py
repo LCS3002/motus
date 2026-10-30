@@ -81,20 +81,35 @@ def privacy_boxes(r: pd.DataFrame, people: bool = True, plates: bool = True,
     return out
 
 
-def blur_boxes(img, boxes) -> None:
-    """Blur every box; overlapping boxes (a held person, a crowd) are blurred as one area."""
+def blur_boxes(img, boxes, fast: bool = False) -> None:
+    """Blur every box; overlapping boxes (a held person, a crowd) are blurred as one area.
+    fast (realtime, live_track.py, ~10x quicker): the areas found on a quarter-size mask and
+    each blurred whole (its bounding rectangle: never less than the boxes), the large kernel's
+    blur done on the area scaled down and back up."""
     b = np.asarray(boxes, float).reshape(-1, 4)
     if not len(b):
         return
     h, w = img.shape[:2]
-    m = np.zeros((h, w), np.uint8)
+    q = 4 if fast else 1
+    m = np.zeros((-(-h // q), -(-w // q)), np.uint8)
     for x1, y1, x2, y2 in b:
-        m[max(int(y1), 0):max(int(y2), 0), max(int(x1), 0):max(int(x2), 0)] = 1
+        if fast:                                 # every quarter-pixel the box touches
+            m[max(int(y1) // q, 0):max(-(-int(np.ceil(y2)) // q), 0),
+              max(int(x1) // q, 0):max(-(-int(np.ceil(x2)) // q), 0)] = 1
+        else:
+            m[max(int(y1), 0):max(int(y2), 0), max(int(x1), 0):max(int(x2), 0)] = 1
     n, lab, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
     for k in range(1, n):
-        x, y, bw, bh, _ = stats[k]
+        x, y, bw, bh, _ = stats[k] * q
+        bw, bh = min(bw, w - x), min(bh, h - y)
         roi = img[y:y + bh, x:x + bw]
         kk = int(min(max(15, (min(bw, bh) // 3) | 1), 151))
+        if fast:
+            s = max(1, kk // 15)
+            small = cv2.resize(roi, (max(1, bw // s), max(1, bh // s)), interpolation=cv2.INTER_AREA)
+            small = cv2.GaussianBlur(small, ((kk // s) | 1, (kk // s) | 1), 0)
+            roi[:] = cv2.resize(small, (bw, bh), interpolation=cv2.INTER_LINEAR)
+            continue
         blurred = cv2.GaussianBlur(roi, (kk, kk), 0)
         sel = lab[y:y + bh, x:x + bw] == k
         roi[sel] = blurred[sel]

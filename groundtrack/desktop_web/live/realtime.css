@@ -1,0 +1,35 @@
+/* motus Live, Realtime (plans/live_controller/10): the recorder's state, the phones, the
+   recordings. Look A as the Live view (tokens.css, live.css for the bar and buttons); white for
+   the recording, violet stays the controller's; no orange. */
+body { overflow: auto; }
+.rt {
+  display: grid; gap: 0; padding: calc(var(--bar-h) + 24px) var(--margin) 32px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 1fr); max-width: 1200px;
+}
+.rt section { padding: 18px 24px 22px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+.rt h2 { margin: 0; color: var(--muted); }
+.rt-sites { grid-column: 1 / -1; }
+.rt-state { display: flex; align-items: center; gap: 12px; }
+.rt-big { font: var(--t-title); letter-spacing: var(--tracking-title); text-transform: uppercase; }
+.rt-dot { width: 9px; height: 9px; border: 1px solid var(--muted); flex: none; }
+.rt-dot.on { background: var(--fg); border-color: var(--fg); }
+.rt-dot.wait { border-color: var(--fg-2); }
+.rt-dot.bad { background: var(--bad); border-color: var(--bad); }
+.rt-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 24px; margin: 4px 0 0; }
+.rt-stats div { min-width: 0; }
+.rt-stats dt { color: var(--muted); }
+.rt-stats dd { margin: 4px 0 0; font: var(--t-num); letter-spacing: var(--tracking-title); font-variant-numeric: tabular-nums;
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-stats dd.small { font: var(--t-mono); padding-top: 9px; }
+.row { display: flex; align-items: center; gap: 10px; }
+.rt-size { gap: 18px; flex-wrap: wrap; }
+.rt-size .label { color: var(--muted); }
+.rt-size .hint { margin: 0; }
+.rt-list { display: flex; flex-direction: column; }
+.rt-rec { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 0;
+          border-bottom: 1px solid var(--rule-soft); }
+.rt-rec .name { font: var(--t-body); }
+.rt-rec .meta { font: var(--t-mono); color: var(--muted); }
+.rt-rec.saving .name { color: var(--fg-2); }
+.rt-empty { font: var(--t-mono); color: var(--muted); }
+@media (max-width: 760px) { .rt { grid-template-columns: 1fr; } }

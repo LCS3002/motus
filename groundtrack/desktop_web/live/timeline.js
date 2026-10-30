@@ -7,7 +7,12 @@
    a keyframe interval is slow, and seeks every second keep several videos behind for good); each
    camera's tracks follow the frame its own video shows (requestVideoFrameCallback:
    mediaTime x fps), so the tracks, the video plane and the scrub bar agree to the frame. Cameras
-   join and leave (add / remove, by key). */
+   join and leave (add / remove, by key).
+   A recording while it records (plans/live_controller/10, step 3: add with live, no video): the
+   clock is "now", LIVE_DELAY_S behind the frames tracked so far (setLive) and never past them; no
+   seek, no end. Pause freezes it, play goes back to now. endLive: the recorder stopped, its
+   frames are all there; the clock runs on to their end as for any clip, and "end" comes. A video
+   may take its place then (attach). */
 
 import { clipTime, loopDiff } from "./spots.js";
 
@@ -18,6 +23,9 @@ const RESYNC_EVERY_MS = 2500;  // at most this often per video (a seek stalls it
 const NUDGE_S = 0.06;          // further than this: played faster / slower until it is back on the clock
 const NUDGE = 1.25;            // by this much
 const STEP = 30;               // the scrub bar's steps per second
+export const LIVE_DELAY_S = 0.2;   // a recording's clock: this far behind its newest tracked frame
+const LIVE_JUMP_S = 1.0;       // further than this from there: put back (else eased, LIVE_EASE)
+const LIVE_EASE = 0.5;         // the clock's rate, at most this much faster / slower to get there
 
 export function fmtTime(s) {
   if (!(s >= 0)) s = 0;
@@ -41,6 +49,8 @@ export class Timeline {
     this.presented = 0;                 // frames the focus camera's video presented (the bench)
     this.scrubbing = false;
     this.longest = 0;
+    this.liveKey = null;                // the recording while it records (its entry: live)
+    this.lastPoll = 0;
     this.noRVFC = typeof HTMLVideoElement === "undefined" || !("requestVideoFrameCallback" in HTMLVideoElement.prototype);
     this._ui();
   }
@@ -48,8 +58,10 @@ export class Timeline {
   get playing() { return this.isPlaying; }
   get time() { return this.T; }
   get duration() { return this.longest; }
-  /** The clock at the end of the longest clip (play starts a new pass). */
-  get atEnd() { return this.longest > 0 && this.T >= this.longest - 1e-3; }
+  /** Whether a recording is being recorded (the clock is "now"). */
+  get live() { return this.liveKey !== null; }
+  /** The clock at the end of the longest clip (play starts a new pass); never while live. */
+  get atEnd() { return !this.live && this.longest > 0 && this.T >= this.longest - 1e-3; }
   get _f() { return this.c.get(this.focus) || this.c.values().next().value || { fps: 30, frames: 1, frame: 0 }; }
   get fps() { return this._f.fps; }
   get frames() { return this._f.frames; }
@@ -64,18 +76,52 @@ export class Timeline {
   _frameAt(k) { return Math.max(0, Math.min(k.frames - 1, Math.floor(clipTime(this.T, k.duration, false) * k.fps))); }
   _held(k) { return this.T >= k.duration - 0.5 / k.fps; }                 // past its last frame: held
 
-  /** A camera joins: its video goes to the clock's time (and plays when the clock does). */
-  add(key, { video, fps, frames }) {
+  /** A camera joins: its video goes to the clock's time (and plays when the clock does). live: a
+      recording while it records (no video; frames: those tracked so far). */
+  add(key, { video, fps, frames, live = false }) {
     if (this.c.has(key)) return;
-    const k = { video, fps: +fps || 30, frames: Math.max(1, frames | 0), frame: 0, fixAt: 0, alive: true };
+    const k = { video: live ? null : video, fps: +fps || 30, frames: Math.max(1, frames | 0), frame: 0, fixAt: 0, alive: true };
     k.duration = k.frames / k.fps;
     this.c.set(key, k);
     if (this.focus === null) this.focus = key;
+    if (live) this.liveKey = key;
+    this._lengths();
+    k.frame = this._frameAt(k);
+    if (k.video) this._attach(key, k);
+    this._show();
+  }
+
+  /** The recording's frames tracked so far (live), or all of them (endLive: the clock is a clip's
+      again, and runs on to their end). */
+  setLive(key, frames) {
+    const k = this.c.get(key);
+    if (!k) return;
+    k.frames = Math.max(1, frames | 0);
+    k.duration = k.frames / k.fps;
+    this._lengths();
+  }
+
+  endLive(key, frames) {
+    if (key !== this.liveKey) return;
+    this.liveKey = null;
+    this.setLive(key, frames);                          // (the scrub works again)
+    this.T0 = this.T; this.wall0 = performance.now();
+    this._show();
+  }
+
+  /** A video for a camera that had none (a recording once its video is made). */
+  attach(key, video) {
+    const k = this.c.get(key);
+    if (!k || k.video || key === this.liveKey) return;
+    k.video = video;
+    this._attach(key, k);
+    this._show();
+  }
+
+  _attach(key, k) {
+    const video = k.video, f = k.frame;
     video.loop = false;
     video.playbackRate = this.rate;
-    this._lengths();
-    const f = this._frameAt(k);
-    k.frame = f;
     if (this.isPlaying && !this._held(k)) {
       video.currentTime = this.T;
       k.fixAt = performance.now() + RESYNC_EVERY_MS;
@@ -90,7 +136,6 @@ export class Timeline {
       };
       video.requestVideoFrameCallback(tick);
     }
-    this._show();
   }
 
   /** A camera leaves (its video stops; the caller removes it). */
@@ -98,8 +143,9 @@ export class Timeline {
     const k = this.c.get(key);
     if (!k) return;
     k.alive = false;
-    k.video.pause();
+    if (k.video) k.video.pause();
     this.c.delete(key);
+    if (key === this.liveKey) this.liveKey = null;
     if (this.focus === key) this.focus = this.c.size ? this.c.keys().next().value : null;
     this._lengths();
     if (this.T > this.longest) this.T = this.longest;
@@ -111,12 +157,21 @@ export class Timeline {
     this.longest = Math.max(0, ...[...this.c.values()].map((k) => k.duration));
     this.scrub.max = String(Math.max(0, Math.round(this.longest * STEP)));
     this.durEl.textContent = fmtTime(this.longest);
+    this.scrub.disabled = this.live;                    // a recording while it records: no seek
   }
 
   /** Each render: the clock moves on, the videos are kept on it; at the end everything stops. */
   poll() {
-    const now = performance.now();
-    if (this.isPlaying) {
+    const now = performance.now(), dt = Math.min(0.1, Math.max(0, (now - (this.lastPoll || now)) / 1000));
+    this.lastPoll = now;
+    if (this.isPlaying && this.live) {                 // now: behind the newest frame, eased
+      const k = this.c.get(this.liveKey), edge = k.frames / k.fps, target = Math.max(0, edge - LIVE_DELAY_S);
+      let T = this.T;
+      if (Math.abs(target - T) > LIVE_JUMP_S) T = target;
+      else T += dt * (1 + Math.max(-LIVE_EASE, Math.min(LIVE_EASE, 2 * (target - T))));
+      this.T = Math.max(0, Math.min(T, edge));
+      this.T0 = this.T; this.wall0 = now;
+    } else if (this.isPlaying) {
       this.T = this.T0 + (now - this.wall0) / 1000 * this.rate;
       if (this.T >= this.longest) {
         this.T = this.longest;
@@ -129,6 +184,7 @@ export class Timeline {
     }
     for (const k of this.c.values()) {
       const v = k.video;
+      if (!v) { k.frame = this._frameAt(k); continue; }   // no video (a recording): the clock's frame
       if (this.isPlaying) {
         if (this._held(k) || v.ended) this._hold(k);      // (an ended video's play() would start it again)
         else {
@@ -152,13 +208,14 @@ export class Timeline {
   /** A clip past its end: paused on its last frame. */
   _hold(k) {
     const v = k.video, last = (k.frames - 0.5) / k.fps;
+    if (!v) return;
     if (!v.paused) v.pause();
     if (!v.ended && !v.seeking && Math.abs(v.currentTime - last) > 1 / k.fps) v.currentTime = last;
   }
 
   _stop() {
     this.isPlaying = false;
-    for (const k of this.c.values()) { k.video.pause(); k.video.playbackRate = this.rate; }
+    for (const k of this.c.values()) if (k.video) { k.video.pause(); k.video.playbackRate = this.rate; }
   }
 
   play() {
@@ -167,9 +224,14 @@ export class Timeline {
       if (this.onNewPass) this.onNewPass();
       this.T = 0;
     }
-    this.T0 = this.T; this.wall0 = performance.now();
+    if (this.live) {                                   // back to now
+      const k = this.c.get(this.liveKey);
+      this.T = Math.max(0, k.frames / k.fps - LIVE_DELAY_S);
+    }
+    this.T0 = this.T; this.wall0 = this.lastPoll = performance.now();
     this.isPlaying = true;
     for (const k of this.c.values()) {
+      if (!k.video) continue;
       if (this._held(k)) { this._hold(k); continue; }
       k.video.currentTime = this.T;
       k.fixAt = performance.now() + RESYNC_EVERY_MS;
@@ -180,7 +242,7 @@ export class Timeline {
 
   pause() {
     if (!this.isPlaying) return;
-    this.T = Math.min(this.T0 + (performance.now() - this.wall0) / 1000 * this.rate, this.longest);
+    if (!this.live) this.T = Math.min(this.T0 + (performance.now() - this.wall0) / 1000 * this.rate, this.longest);
     this._stop();
     this._show();
     this._sync("pause");
@@ -190,10 +252,12 @@ export class Timeline {
 
   /** The same time for every clip, clamped per clip (each shows its frame at t). */
   seekTime(t, notify = true) {
+    if (this.live) return;                              // a recording while it records: now only
     this.T = Math.max(0, Math.min(this.longest, +t || 0));
     this.T0 = this.T; this.wall0 = performance.now();
     for (const k of this.c.values()) {
       const f = this._frameAt(k);
+      if (!k.video) { k.frame = f; continue; }
       if (this.isPlaying && !this._held(k)) k.video.currentTime = this.T;
       else { if (!k.video.paused) k.video.pause(); k.video.currentTime = (f + 0.5) / k.fps; }
       k.frame = f;                                      // now (a paused video may present it late)
@@ -211,7 +275,7 @@ export class Timeline {
     r = RATES.reduce((a, b) => (Math.abs(b - r) < Math.abs(a - r) ? b : a), 1);
     if (this.isPlaying) { this.T = this.T0 + (performance.now() - this.wall0) / 1000 * this.rate; this.T0 = this.T; this.wall0 = performance.now(); }
     this.rate = r;
-    for (const k of this.c.values()) k.video.playbackRate = r;
+    for (const k of this.c.values()) if (k.video) k.video.playbackRate = r;
     this.rateEl.value = String(r);
     this.onChange && this.onChange("rate");
   }

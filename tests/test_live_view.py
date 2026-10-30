@@ -430,6 +430,120 @@ def test_hub_endpoints_start_info_new_code_stop(server, app):
     app.stop_hub()                                                     # stopping twice is fine
 
 
+def test_realtime_page_and_mode_start_end_stop(server, app, monkeypatch):
+    """Realtime (plans/live_controller/10): its page, and the mode through /api/live/realtime:
+    start (the hub on, the tracker the hub's recorder), end, stop (the hub's recorder off, the
+    tracker closed), always with the recordings (the Live view's light poll: the status only);
+    a recording's points for the Live view (step 3: [u32 length][header][records], from the
+    tracker while on, from the package once saved) and its blurred picture (none: 204). The
+    tracker is a stand-in (no model here)."""
+    from groundtrack import live_track
+
+    made = []
+
+    class FakeTracker:
+        def __init__(self, project, **kw):
+            self.project, self.calls = project, []
+            made.append(self)
+
+        def load(self):
+            self.calls.append("load")
+
+        def end(self):
+            self.calls.append("end")
+
+        def close(self):
+            self.calls.append("close")
+
+        def set_long_side(self, v):
+            if v not in live_track.LONG_SIDES:
+                raise ValueError("frame size: long side 1920 or 1280")
+            self.calls.append(("size", v))
+
+        def status(self):
+            return {"mode": "ready", "recording": False}
+
+        def tracks_since(self, rid, n0=0):
+            return {"id": rid, "n0": n0, "n": 5, "frames": 3, "done": False}, b"r" * 30 * (5 - n0)
+
+        def preview(self, rid):
+            return b"\xff\xd8jpeg" if rid == "20261030-101500" else None
+
+    monkeypatch.setattr(live_track, "LiveTracker", FakeTracker)
+
+    def envelope_of(data):
+        k = int.from_bytes(data[:4], "little")
+        return json.loads(data[4:4 + k]), data[4 + k:]
+
+    def post(body, headers=None):
+        st, _, data = http(server + "/api/live/realtime",
+                           {"X-Groundtrack": "1"} if headers is None else headers,
+                           json.dumps(body).encode(), "POST")
+        return st, json.loads(data)
+
+    st, h, body = http(server + "/live/realtime")
+    assert st == 200 and h["Content-Type"].startswith("text/html")
+    assert b"/static/live/realtime.js" in body and b"Realtime" in body
+    for f in ("realtime.js", "realtime.css"):
+        assert http(f"{server}/static/live/{f}")[0] == 200
+    assert json.loads(http(server + "/api/live/realtime")[2]) == {"mode": "off", "recordings": []}
+    assert http(server + "/api/live/realtime", {}, b'{"action": "start"}', "POST")[0] == 403
+    st, d = post({"action": "start"})
+    assert st == 200 and d == {"mode": "ready", "recording": False, "recordings": []}
+    assert len(made) == 1 and made[0].calls == ["load"] and Path(made[0].project) == app.root
+    assert app._hub.recorder is made[0] and app._hub.info()["realtime"] is True
+    post({"action": "start", "long_side": 1280})                       # one tracker; the size
+    assert len(made) == 1 and made[0].calls == ["load", ("size", 1280), "load"]
+    assert post({"action": "size", "long_side": 1920})[0] == 200
+    assert post({"action": "size", "long_side": 1000})[0] == 400
+    assert made[0].calls[-1] == ("size", 1920)
+    rec = app.root / "runs" / "live" / "20261030-101500"
+    (rec / "live").mkdir(parents=True)
+    (rec / "recording.json").write_text(json.dumps({"seconds": 12.5, "tracks": 4, "complete": True,
+                                                    "stats": {"fps_tracked": 16.5}, "notes": []}),
+                                        encoding="utf-8")
+    (rec / "live" / "scene.json").write_text(json.dumps({"growing": False}), encoding="utf-8")
+    st, d = post({"action": "end"})
+    assert made[0].calls[-1] == "end"
+    assert d["recordings"] == [{"id": "20261030-101500", "run": str(rec), "title": "Rec 30 Oct 10:15",
+                                "seconds": 12.5, "tracks": 4, "fps_tracked": 16.5, "complete": True,
+                                "growing": False, "notes": []}]
+    assert post({"action": "nope"})[0] == 400
+    assert json.loads(http(server + "/api/live/realtime?light=1")[2]) == {"mode": "ready", "recording": False}
+    st, h, data = http(server + "/api/live/realtime/tracks?id=20261030-101500&from=2")
+    assert st == 200 and h["Content-Type"] == "application/octet-stream"
+    assert envelope_of(data) == ({"id": "20261030-101500", "n0": 2, "n": 5, "frames": 3, "done": False}, b"r" * 90)
+    st, h, data = http(server + "/api/live/realtime/preview?id=20261030-101500")
+    assert st == 200 and h["Content-Type"] == "image/jpeg" and data == b"\xff\xd8jpeg"
+    assert http(server + "/api/live/realtime/preview?id=20261030-101501")[0] == 204
+    st, d = post({"action": "stop"})
+    assert d["mode"] == "off" and app._hub.recorder is None and app._hub.running
+    assert until_true(lambda: made[0].calls[-1] == "close") and "end" in made[0].calls
+    assert post({"action": "stop"})[1]["mode"] == "off"                # twice is fine
+    # the mode off: a saved recording's points from its package, nothing while it was left growing
+    (rec / "live" / "tracks.bin").write_bytes(tracks_bin().tobytes())
+    (rec / "live" / "scene.json").write_text(json.dumps({"growing": False, "frames": 8}), encoding="utf-8")
+    st, _, data = http(server + "/api/live/realtime/tracks?id=20261030-101500&from=3")
+    assert st == 200 and envelope_of(data) == ({"id": "20261030-101500", "n0": 3, "n": 9, "frames": 8, "done": True},
+                                               tracks_bin()[3:].tobytes())
+    assert http(server + "/api/live/realtime/preview?id=20261030-101500")[0] == 204
+    assert http(server + "/api/live/realtime/tracks?id=..%2Fx")[0] == 400
+    (rec / "live" / "scene.json").write_text(json.dumps({"growing": True}), encoding="utf-8")
+    assert http(server + "/api/live/realtime/tracks?id=20261030-101500")[0] == 404
+    post({"action": "start"})
+    app.stop_hub()                                                     # closing the app: closed too
+    assert made[1].calls[-1] == "close"
+
+
+def until_true(fn, timeout=5.0):
+    end = time.time() + timeout
+    while time.time() < end:
+        if fn():
+            return True
+        time.sleep(0.02)
+    return False
+
+
 # --------------------------------------------------------------------------- node: the view's modules
 HOOKS = """
 const V = %s;
@@ -1450,6 +1564,207 @@ def test_cameras_one_scene_one_clock_and_passes(tmp_path):
     assert pa["dropped"] == [0, False, 0]
     assert ps["drawn"] == [False, True] and ps["b64"] == "AAEC+v8=" and ps["iso"]
     assert ps["label"] == [True, True]          # "28 Oct 19:14 \u00b7 3 cameras \u00b7 0:41", "... \u00b7 0:12 \u00b7 stopped"
+
+
+# --------------------------------------------------------------------------- realtime (10, step 3)
+def growing_tracks():
+    """A recording as it comes: tracks that start and end mid-way, an id lower than the others that
+    comes late (every track's number in the index shifts), a 3-frame gap, the footage's guesses, a
+    walker's jump, one lost by the pan; nobody in the last two frames (26)."""
+    rows = []
+    for f in range(24):
+        rows += [(9, f, 0.0, 10.0 + 0.05 * f, 0, 0), (2, f, 2.0, 15.0, 0, 1 if 8 <= f <= 10 else 0)]
+        if f < 14:
+            rows.append((7, f, -7.0, 15.0, 0, 0))
+        if 3 <= f <= 20:
+            rows.append((4, f, 7.0, 15.0 if f < 10 else 25.0, 1, 0))
+        if 6 <= f <= 9:
+            rows.append((5, f, -3.0, 20.0, 0, 0))
+        if f >= 12 and f not in (16, 17):
+            rows.append((1, f, 4.0, 12.0 + 0.1 * (f - 12), 0, 0))
+    rows.sort(key=lambda r: (r[1], -r[0]))                  # frame order (within a frame: any)
+    a = np.zeros(len(rows), TRACK_DTYPE)
+    for i, (tid, f, x, y, cls, src) in enumerate(rows):
+        a[i] = (tid, f, f / 30.0, x, y, 0.0, 1.0, cls, src)
+    return a
+
+
+GROW = """
+const Ru = await import(LIVE + "rules.js");
+const fs = await import("node:fs");
+const sc = P.prepareScene(job.meta, null), zero = mousePose(0, 0), I = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+const all = Uint8Array.from(fs.readFileSync(process.argv[2] + "/tracks.bin")).buffer;
+const pan = (f) => (f < 8 ? 0 : Math.min(3 * (f - 7), 30));
+const cam = (p) => P.poseToCamera(sc, mousePose(p, 0), zero, 1, 1);
+const nanless = (A) => Array.from(A, (v) => (Number.isNaN(v) ? null : v));
+const segs = (s) => [nanless(s.pos.slice(0, 6 * s.n)), Array.from(s.col.slice(0, 6 * s.n))];
+// the whole recording, performed frame by frame with the pose of the moment
+const whole = new T.TrackView(sc, T.parseTracks(all, job.meta), job.rules, job.classes);
+whole.computeReference();
+// the same recording as it comes (the frames whole so far), each frame performed as it comes
+let g = null, d = null, first = null;
+const steps = [];
+for (const [c, [i0, i1, F]] of job.chunks.entries()) {
+  d = T.appendTracks(d, all.slice(30 * i0, 30 * i1), F);
+  if (!g) { g = new T.TrackView(sc, d, job.rules, job.classes); first = [g.solid.obj, g.solid.obj.geometry, g.solid.cap]; }
+  else g.grow(d);
+  if (!F) { steps.push({ empty: [g.perform(0, cam(0), I, false), g.perfFrame] }); g.build(0); continue; }
+  if (c === 3) g.computeReference();                // the reference layer on: made of what came so far
+  for (let f = g.perfFrame + 1; f < F; f++)
+    for (const v of [g, whole]) { v.perform(f, cam(pan(f)), I, false); v.build(f); }
+  if (c % 2)                                        // paused at now, the phone turns: the current frame again
+    for (const v of [g, whole]) { v.perform(F - 1, cam(pan(F - 1) + 5), I, true); v.build(F - 1); }
+  const o = g.rPerf.out, w = whole.rPerf.out, n = d.n;
+  steps.push({ n, F, perfFrame: [g.perfFrame, whole.perfFrame],
+    out: [[Array.from(o.kind), Array.from(o.cause), Array.from(o.part), nanless(o.X)],
+          [Array.from(w.kind.slice(0, n)), Array.from(w.cause.slice(0, n)), Array.from(w.part.slice(0, n)), nanless(w.X.slice(0, 3 * n))]],
+    later: Array.from(w.kind.slice(n)).every((k) => k === Ru.NOT_YET),
+    solid: [segs(g.solid), segs(whole.solid)], guess: [segs(g.guess), segs(whole.guess)],
+    dist: [Array.from(g.guess.dist.slice(0, 2 * g.guess.n)), Array.from(whole.guess.dist.slice(0, 2 * whole.guess.n))],
+    heads: [nanless(g.headPos.slice(0, 3 * g.nHeads)), nanless(whole.headPos.slice(0, 3 * whole.nHeads))],
+    counts: [g.counts(F - 1), whole.counts(F - 1)], ref: [g.ref.n, g.refStale] });
+}
+out("steps", steps);
+const kinds = new Set(whole.rPerf.out.kind), causes = new Set(whole.rPerf.out.cause), parts = new Set(whole.rPerf.out.part);
+out("covers", { kinds: [...kinds].sort(), causes: [...causes].sort(), parts: [...parts].sort(), tracks: [d.nTracks, whole.d.nTracks] });
+// the reference made again of the whole recording: the whole one's
+g.refreshReference(); g.build(d.frames - 1); whole.build(d.frames - 1);
+out("ref", { a: segs(g.ref), b: segs(whole.ref), stale: g.refStale, n: g.ref.n });
+// the line buffers grew in place: the same objects (the veil's ghosts share the geometry), what was written kept
+out("buffers", { same: g.solid.obj === first[0] && g.solid.obj.geometry === first[1] && g.ghost[0].geometry === first[1],
+                 caps: [first[2], g.solid.cap, g.guess.cap, g.ref.cap], pairs: d.pairs.n });
+// trackIndex counts instead of sorting: the order of a stable sort by id
+let seed = 7;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const index = [];
+for (const [n, ids] of [[0, 1], [1, 1], [50, 3], [2000, 40], [5000, 5000]]) {
+  const tid = Uint32Array.from({ length: n }, () => 1 + 37 * Math.floor(rnd() * ids));
+  const { order, starts } = P.trackIndex(tid);
+  const want = Array.from({ length: n }, (_, i) => i).sort((a, b) => tid[a] - tid[b] || a - b);
+  const ws = [0];
+  for (let r = 1; r <= n; r++) if (r === n || tid[want[r]] !== tid[want[r - 1]]) ws.push(r);
+  index.push([Array.from(order).join() === want.join(), Array.from(starts).join() === ws.join(), starts.length - 1]);
+}
+out("index", index);
+"""
+
+
+@needs_node
+def test_a_growing_recording_drawn_as_it_comes_is_the_whole_one_performed(tmp_path):
+    """10, step 3: the recording's points come in frame order (a point keeps its number); each
+    frame drawn as it comes (appendTracks + grow, then perform) gives what the whole recording
+    performed with the same poses gives: the rules' verdicts and positions, the lines, dashes and
+    heads, the counts; the reference made again of everything is the whole one's; the line
+    buffers grow in place. A recording with no frame whole yet performs nothing. trackIndex (a
+    count, not a sort) orders as a stable sort by id."""
+    a = growing_tracks()
+    (tmp_path / "tracks.bin").write_bytes(a.tobytes())
+    cuts = [0, 5, 9, 12, 17, 24, 26]                            # frames whole after each poll
+    chunks = [[int(np.searchsorted(a["frame"], f0)), int(np.searchsorted(a["frame"], f1)), f1]
+              for f0, f1 in zip([0] + cuts[:-1], cuts)]
+    res = run_node(tmp_path, GROW, {"meta": flat_meta(yaw=0.0, tilt=3.0, frames=26), "rules": RULES,
+                                    "classes": {"0": "thing", "1": "walker"}, "chunks": chunks})
+    st = res["steps"]
+    assert st[0] == {"empty": [False, -1]}                      # nothing whole yet: nothing performed
+    for s, (i0, i1, F) in zip(st[1:], chunks[1:]):
+        assert s["n"] == i1 and s["F"] == F and s["perfFrame"] == [F - 1, F - 1]
+        assert s["out"][0] == s["out"][1]                       # kinds, causes, parts, positions
+        assert s["later"]                                       # the whole one: nothing after drawn
+        assert s["solid"][0] == s["solid"][1] and s["guess"][0] == s["guess"][1] and s["dist"][0] == s["dist"][1]
+        assert s["heads"][0] == s["heads"][1] and s["counts"][0] == s["counts"][1]
+    assert [s["ref"][1] for s in st[1:]] == [False, False, False, True, True, True]   # stale once it grew
+    assert st[3]["ref"][0] > 0 and [s["ref"][0] for s in st[4:]] == [st[3]["ref"][0]] * 3     # as made, until made again
+    cv = res["covers"]                                          # the case covers the lexicon
+    assert {0, 1}.issubset(cv["kinds"]) and {1, 2}.issubset(cv["causes"]) and 1 in cv["parts"]
+    assert cv["tracks"] == [6, 6]
+    r = res["ref"]
+    assert r["a"] == r["b"] and r["n"] > 0 and r["stale"] is False
+    b = res["buffers"]
+    assert b["same"] and b["caps"][0] == 1 and min(b["caps"][1:]) >= b["pairs"]
+    assert res["index"] == [[True, True, n] for n in (0, 1, 3, 40, res["index"][-1][2])]
+    assert res["index"][-1][2] > 3000                           # many ids: most once
+
+
+TIMELINE_LIVE = """
+let now = 1000;
+Object.defineProperty(globalThis, "performance", { value: { now: () => now }, configurable: true, writable: true });
+const el = () => ({ setAttribute() {}, addEventListener() {}, value: "", textContent: "", title: "", disabled: false });
+const bar = { _q: {}, set innerHTML(v) {}, querySelector(sel) { const k = sel.split('"')[1]; return (this._q[k] = this._q[k] || el()); },
+              classList: { add() {}, remove() {} }, matches: () => false, addEventListener() {} };
+globalThis.window = { addEventListener() {} };
+globalThis.HTMLVideoElement = class {};
+const Tl = await import(LIVE + "timeline.js");
+const events = [];
+let passes = 0;
+const tl = new Tl.Timeline(bar, (w) => events.push(w), () => passes++);
+const key = { n: "rt" }, edge = () => tl.c.get(key).frames / 30;
+const tick = (ms) => { now += ms; tl.poll(); };
+tl.add(key, { fps: 30, frames: 0, live: true });
+const added = { live: tl.live, atEnd: tl.atEnd, scrub: bar._q.scrub.disabled, frame: tl.frameOf(key) };
+tl.setLive(key, 30); tl.play();
+const played = { T: tl.time, playing: tl.playing };
+tl.seekTime(0);
+const seek = tl.time;
+// tracked in real time (3 frames each 100 ms): the clock follows, LIVE_DELAY_S behind, never past
+const follow = [];
+for (let i = 1; i <= 40; i++) { tl.setLive(key, 30 + 3 * i); tick(100); follow.push([tl.time, edge(), tl.frameOf(key)]); }
+// the recorder stalls: the clock runs into the newest frame and waits there (no end)
+for (let i = 0; i < 20; i++) tick(100);
+const stalled = { T: tl.time, edge: edge(), playing: tl.playing, atEnd: tl.atEnd };
+// 20 s at once (the view was away): put back to now
+tl.setLive(key, 600); tick(100);
+const jumped = tl.time;
+// paused: the clock holds while the recording goes on; play: back to now
+tl.pause(); tick(500); tl.setLive(key, 660);
+const paused = { T: tl.time, playing: tl.playing };
+tick(500);
+tl.play();
+const back = tl.time;
+// the recorder stopped: a clip again, the clock runs on to its end, then "end" (the pass is saved)
+tl.endLive(key, 690);
+const ended = { live: tl.live, scrub: bar._q.scrub.disabled, dur: tl.duration };
+tick(100);
+const runs = tl.time;
+tick(2000);
+const end = { T: tl.time, playing: tl.playing, atEnd: tl.atEnd, frame: tl.frameOf(key), passes };
+// its video, once made: on the clock's frame; seeking works again
+const v = { currentTime: 0, paused: true, seeking: false, ended: false, playbackRate: 1, loop: true,
+            play() { this.paused = false; return Promise.resolve(); }, pause() { this.paused = true; } };
+tl.attach(key, v);
+const attached = { time: v.currentTime, loop: v.loop };
+tl.seekTime(5);
+out("live", { added, played, seek, follow, stalled, jumped, paused, back, ended, runs, end, attached,
+              seeked: [tl.time, tl.frameOf(key), v.currentTime], events, delay: Tl.LIVE_DELAY_S });
+"""
+
+
+@needs_node
+def test_a_recordings_clock_is_now(tmp_path):
+    """10, step 3: while it records, the clock is "now": LIVE_DELAY_S behind the newest frame
+    tracked, eased, never past it, no seek, no end; a stall waits at the newest frame, a long
+    way off puts it back; pause holds, play goes back to now. Once the recorder stops it is a clip
+    again: the clock runs on to its end ("end": the pass is saved), its video attaches, seek works."""
+    t = run_node(tmp_path, TIMELINE_LIVE, {})["live"]
+    D = t["delay"]
+    assert D == pytest.approx(0.2)
+    assert t["added"] == {"live": True, "atEnd": False, "scrub": True, "frame": 0}
+    assert t["played"] == {"T": pytest.approx(1 - D), "playing": True}
+    assert t["seek"] == pytest.approx(1 - D)                    # no seek while live
+    for T, e, f in t["follow"]:
+        assert T <= e + 1e-9 and f == min(int(T * 30 + 1e-9), round(e * 30) - 1)
+    # settled: LIVE_DELAY_S behind each new edge, then on by the poll's 0.1 s (the edge steps 0.1 s a poll here)
+    assert all(e - D - 0.01 < T < e - D + 0.1 + 0.01 for T, e, _ in t["follow"][-10:])
+    s = t["stalled"]
+    assert s["T"] == pytest.approx(s["edge"]) and s["playing"] is True and s["atEnd"] is False
+    assert t["jumped"] == pytest.approx(20 - D)
+    assert t["paused"] == {"T": pytest.approx(20 - D), "playing": False}
+    assert t["back"] == pytest.approx(22 - D)
+    assert t["ended"] == {"live": False, "scrub": False, "dur": pytest.approx(23)}
+    assert t["runs"] == pytest.approx(22 - D + 0.1)
+    assert t["end"] == {"T": pytest.approx(23), "playing": False, "atEnd": True, "frame": 689, "passes": 0}
+    assert t["attached"] == {"time": pytest.approx(689.5 / 30), "loop": False}
+    assert t["seeked"] == [5, 150, pytest.approx(150.5 / 30)]
+    assert t["events"] == ["play", "pause", "play", "end", "seek"]
 
 
 @needs_node

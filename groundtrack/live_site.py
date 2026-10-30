@@ -288,6 +288,14 @@ def _camera(run: Path) -> dict | None:
         return None
 
 
+def _realtime(run: Path) -> bool:
+    """A realtime recording's package (scene.json "realtime": true; plans/live_controller/10)."""
+    try:
+        return bool(json.loads((run / "live" / "scene.json").read_text(encoding="utf-8")).get("realtime"))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def _pick(root: Path, run_name: str) -> Path | None:
     """The clip's run to use: the one called run_name, else the newest package."""
     if (root / run_name / "live" / "scene.json").is_file():
@@ -396,6 +404,13 @@ def site_cameras(run: str | Path, configs: list[Path]) -> dict:
     out, groups, notes = arrange(cams, live_cfg)
     notes = ex_notes + notes
     cE, cN = site_centre([(c["E"], c["N"]) for c in out])
+    if mine is None and _realtime(run):                   # a phone recording (runs/live/): its own site
+        from .live_track import recording_title
+
+        site = "Realtime"
+        for c in out:
+            if Path(c["run"]) == run:
+                c["name"] = recording_title(run.name)
     start_name = next(c["name"] for c in out if Path(c["run"]) == run)
     return {"site": site or root.name, "start_spot": start_name, "centre": {"E": round(cE, 2), "N": round(cN, 2)},
             "cameras": out, "groups": groups, "notes": notes}

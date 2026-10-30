@@ -74,7 +74,7 @@ function boot() {
     "viewst", "spot", "spotbox", "who", "cam", "camname", "camarea",
     "camgo", "picker", "pback", "ptitle", "pnone", "pclose", "plist", "zero", "gain",
     "gainval", "play", "section", "space", "spacest", "scrub", "tcur", "tdur",
-    "horizon", "tilt", "turn", "note"].map(id => [id, $(id)]));
+    "horizon", "tilt", "turn", "note", "rec", "recnote", "sensors"].map(id => [id, $(id)]));
   const K = new URLSearchParams(location.search).get("k") || "";
   const PID = pageId();
   // the fonts of desktop_web/tokens.css, added here: like every file of this page they are
@@ -294,8 +294,29 @@ function boot() {
         showWho();
       }
       showHub(m);
+      showRealtime(m.realtime === true);
     }
   }
+
+  // ---- realtime (plans/live_controller/10): the laptop's realtime mode offers Record (record.js)
+  // beside Start (Manipulate). Record takes this page: it lets go of its player here.
+  function showRealtime(on) {
+    if (!running) {
+      ui.rec.hidden = !on;
+      ui.go.textContent = on ? "Manipulate" : "Start";
+    }
+    ui.recnote.hidden = !on;
+    ui.sensors.hidden = on;
+  }
+  window.addEventListener("motus:record", () => {
+    stopped = true;
+    clearTimeout(retryTimer);
+    retryTimer = 0;
+    letGoSpace();
+    const s = ws;
+    ws = null;
+    if (s) s.close(1000, "recording");
+  });
 
   setInterval(() => {
     if (ws && ws.readyState === 1) {

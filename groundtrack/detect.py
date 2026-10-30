@@ -163,6 +163,76 @@ class _NumpyBoxes:
         return _NumpyBoxes(self.xyxy[idx], self.conf[idx], self.cls[idx])
 
 
+class FrameTracker:
+    """One frame at a time, as run_tracking tracks a video: the filters (riders, classes, the
+    bottom edge, the ROI), the tracker, and the boxes it predicts through an occlusion (kept once
+    the track is found again). run_tracking and the realtime tracker (live_track.py) share it, so
+    both find the same people in the same frames."""
+
+    def __init__(self, det: dict, tracker, wanted, roi=None, record_predicted: bool = True):
+        self.det, self.tracker, self.wanted, self.roi = det, tracker, set(wanted), roi
+        self.record_pred = bool(record_predicted)
+        self.pending: dict[int, list[tuple]] = {}
+        self.n_pred_kept = 0
+
+    @staticmethod
+    def privacy_rows(fidx: int, xyxy: np.ndarray, cls: np.ndarray) -> list[tuple]:
+        """PRIVACY_COLUMNS rows: every person / vehicle box of the frame, before any filter."""
+        m = np.isin(cls, list(PRIVACY_IDS))
+        return [(fidx, COCO_NAMES.get(int(c), str(c)), x1, y1, x2, y2)
+                for (x1, y1, x2, y2), c in zip(xyxy[m], cls[m])]
+
+    def step(self, fidx: int, t: float, frame: np.ndarray, xyxy: np.ndarray, conf: np.ndarray,
+             cls: np.ndarray, H_ref: np.ndarray | None = None) -> list[tuple]:
+        """The RAW_COLUMNS rows this frame adds: the tracks seen in it, and the predicted rows of
+        tracks found again. H_ref: the frame's registration to the reference frame (the ROI was
+        drawn there)."""
+        det = self.det
+        keep = np.ones(len(cls), bool)
+        if det.get("suppress_riders"):
+            keep &= _suppress_riders(xyxy, cls)
+        keep &= np.isin(cls, list(self.wanted))
+        margin = det.get("edge_margin_px")
+        if margin is not None and margin >= 0:
+            # a box cut off by the bottom of the frame has no real foot point
+            keep &= xyxy[:, 3] < frame.shape[0] - margin
+        if self.roi is not None and keep.any():
+            foot = np.column_stack([(xyxy[:, 0] + xyxy[:, 2]) / 2, xyxy[:, 3]])
+            if H_ref is not None:  # the ROI was drawn on the reference frame
+                foot = cv2.perspectiveTransform(foot.reshape(-1, 1, 2).astype(np.float64),
+                                                H_ref).reshape(-1, 2)
+            keep &= point_in_polygon(foot, self.roi)
+        dets = _NumpyBoxes(xyxy[keep], conf[keep], cls[keep])
+        out = self.tracker.update(dets, frame)
+
+        rows: list[tuple] = []
+        seen = set()
+        for o in np.asarray(out).reshape(-1, out.shape[-1] if len(out) else 8):
+            x1, y1, x2, y2, tid, score, c = o[:7]
+            tid, c = int(tid), int(c)
+            seen.add(tid)
+            if tid in self.pending:
+                self.n_pred_kept += len(self.pending[tid])
+                rows.extend(self.pending.pop(tid))
+            rows.append((tid, COCO_NAMES.get(c, str(c)), c, fidx, t, x1, y1, x2, y2,
+                         float(score), False))
+        if self.record_pred:
+            lost = getattr(self.tracker, "lost_stracks", [])
+            for s in lost:
+                if s.track_id in seen or s.mean is None:
+                    continue
+                x1, y1, x2, y2 = s.xyxy
+                c = int(s.cls)
+                self.pending.setdefault(s.track_id, []).append(
+                    (s.track_id, COCO_NAMES.get(c, str(c)), c, fidx, t, x1, y1, x2, y2,
+                     np.nan, True))
+            # forget pending predictions of tracks the tracker has removed for good
+            alive = {s.track_id for s in lost}
+            for tid in [k for k in self.pending if k not in alive]:
+                del self.pending[tid]
+        return rows
+
+
 def detect_privacy_boxes(cfg: Config, video: Path, out_csv: Path, device: str, start: int,
                          end: int, stride: int, log=print) -> int:
     """Detection only: every person / vehicle box of every processed frame, for blurring
@@ -270,8 +340,7 @@ def run_tracking(cfg: Config, video: Path, out_csv: Path, device: str, log=print
         cap.set(cv2.CAP_PROP_POS_FRAMES, start)
     rows: list[tuple] = []
     privacy_rows: list[tuple] = []
-    pending: dict[int, list[tuple]] = {}
-    record_pred = bool(det.get("record_predicted", True))
+    ft = FrameTracker(det, tracker, wanted, roi, det.get("record_predicted", True))
 
     it = range(start, end)
     pbar = None
@@ -280,10 +349,8 @@ def run_tracking(cfg: Config, video: Path, out_csv: Path, device: str, log=print
 
         pbar = tqdm(total=(end - start + stride - 1) // stride, unit="frame", desc="detect+track")
     batch_size = max(1, int(det.get("batch", 4)))
-    n_pred_kept = 0
 
     def handle(fidx, frame, r):
-        nonlocal n_pred_kept
         t = fidx / info.fps
         b = r.boxes.cpu().numpy()
         xyxy, conf, cls = b.xyxy, b.conf, b.cls.astype(int)
@@ -293,49 +360,8 @@ def run_tracking(cfg: Config, video: Path, out_csv: Path, device: str, log=print
             reg_frames.append(fidx)
             reg_H.append(H_ref)
             reg_inl.append(n_in)
-        for (x1, y1, x2, y2), c in zip(xyxy[np.isin(cls, list(PRIVACY_IDS))],
-                                       cls[np.isin(cls, list(PRIVACY_IDS))]):
-            privacy_rows.append((fidx, COCO_NAMES.get(int(c), str(c)), x1, y1, x2, y2))
-        keep = np.ones(len(cls), bool)
-        if det.get("suppress_riders"):
-            keep &= _suppress_riders(xyxy, cls)
-        keep &= np.isin(cls, list(wanted))
-        margin = det.get("edge_margin_px")
-        if margin is not None and margin >= 0:
-            # a box cut off by the bottom of the frame has no real foot point
-            keep &= xyxy[:, 3] < frame.shape[0] - margin
-        if roi is not None and keep.any():
-            foot = np.column_stack([(xyxy[:, 0] + xyxy[:, 2]) / 2, xyxy[:, 3]])
-            if H_ref is not None:  # the ROI was drawn on the reference frame
-                foot = cv2.perspectiveTransform(foot.reshape(-1, 1, 2).astype(np.float64),
-                                                H_ref).reshape(-1, 2)
-            keep &= point_in_polygon(foot, roi)
-        dets = _NumpyBoxes(xyxy[keep], conf[keep], cls[keep])
-        out = tracker.update(dets, frame)
-
-        seen = set()
-        for o in np.asarray(out).reshape(-1, out.shape[-1] if len(out) else 8):
-            x1, y1, x2, y2, tid, score, c = o[:7]
-            tid, c = int(tid), int(c)
-            seen.add(tid)
-            if tid in pending:
-                n_pred_kept += len(pending[tid])
-                rows.extend(pending.pop(tid))
-            rows.append((tid, COCO_NAMES.get(c, str(c)), c, fidx, t, x1, y1, x2, y2,
-                         float(score), False))
-        if record_pred:
-            for s in getattr(tracker, "lost_stracks", []):
-                if s.track_id in seen or s.mean is None:
-                    continue
-                x1, y1, x2, y2 = s.xyxy
-                c = int(s.cls)
-                pending.setdefault(s.track_id, []).append(
-                    (s.track_id, COCO_NAMES.get(c, str(c)), c, fidx, t, x1, y1, x2, y2,
-                     np.nan, True))
-            # forget pending predictions of tracks the tracker has removed for good
-            alive = {s.track_id for s in getattr(tracker, "lost_stracks", [])}
-            for tid in [k for k in pending if k not in alive]:
-                del pending[tid]
+        privacy_rows.extend(ft.privacy_rows(fidx, xyxy, cls))
+        rows.extend(ft.step(fidx, t, frame, xyxy, conf, cls, H_ref))
         if pbar:
             pbar.update(1)
 
@@ -366,6 +392,7 @@ def run_tracking(cfg: Config, video: Path, out_csv: Path, device: str, log=print
     cap.release()
     if pbar:
         pbar.close()
+    n_pred_kept = ft.n_pred_kept
 
     df = pd.DataFrame(rows, columns=RAW_COLUMNS)
     df = df.sort_values(["track_id", "frame"]).reset_index(drop=True)

@@ -8,6 +8,10 @@ Two listeners, one asyncio loop (in a background thread when started from the ap
   it is refused (403). The certificate is self-signed (made once with `cryptography`); Safari's
   warning is accepted once on the phone (motion sensors need a secure page, and the WSS uses the
   same certificate).
+- **Recorder (LAN, realtime only; plans/live_controller/10):** `/ws/record` on the same port,
+  only while the laptop is in the realtime mode (`set_recorder`; else 409), one page at a time.
+  The one exception to "never video over the link": its camera frames come to this machine
+  (and only here) for the realtime tracker. Never relayed, never logged.
 - **View (this machine only):** `ws://127.0.0.1:<view_port>/ws/view` (default 8767), for the
   Live view. A browser page may connect only from this machine (Origin 127.0.0.1 / localhost,
   or no Origin for local programs).
@@ -112,6 +116,7 @@ PORT = 8766                      # 8765 is `groundtrack ui`
 VIEW_PORT = 8767
 # the only files the phone can fetch; the html and the manifest carry the code (__K__)
 STATIC = {"/": "index.html", "/index.html": "index.html", "/phone.js": "phone.js",
+          "/record.js": "record.js",
           "/phone.css": "phone.css", "/manifest.json": "manifest.json", "/icon.png": "icon.png",
           "/fonts/Geist-Variable.woff2": "fonts/Geist-Variable.woff2",
           "/fonts/SplineSansMono-Variable.woff2": "fonts/SplineSansMono-Variable.woff2"}
@@ -120,7 +125,8 @@ CTYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=
           ".css": "text/css; charset=utf-8", ".json": "application/manifest+json",
           ".png": "image/png", ".woff2": "font/woff2"}
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
-       "font-src 'self'; manifest-src 'self'; connect-src 'self' wss:; base-uri 'none'; "
+       "font-src 'self'; manifest-src 'self'; connect-src 'self' wss:; "
+       "media-src 'self' blob: mediastream:; base-uri 'none'; "      # the recorder's preview
        "form-action 'none'; frame-ancestors 'none'")
 SOURCES = {"web", "webcam", "freed", "arkit", "mouse", "replay"}
 STATUSES = {"ok", "limited", "lost"}
@@ -143,6 +149,12 @@ SPOT_FIELDS = {"clip": "text", "group": "text", "in_scene": "bool", "gain": "num
 TO_PHONES = ("clip", "group")                                   # of a spot, besides its holder
 OWN_FIELDS = ("gain", "scale", "space_held", "space_tilted")    # a phone's: its own spot's
 MAX_PLAYERS = 4
+MAX_PHONE_MSG = 4096             # a phone's message (pose, control): larger ones close it (1009)
+MAX_FRAME = 4_000_000            # a recorder's frame: [u32 header length][header JSON][JPEG]
+MAX_FRAME_HEAD = 1024
+MAX_SIDE = 4096                  # a frame's width and height, at most
+CLOSE_RECORDER = 4004            # a recorder (another page) is connected already
+CLOSE_REALTIME_OFF = 4005        # the laptop left the realtime mode
 MAX_SPOTS = 64
 NAME_MAX = 40
 CLOSE_NEW_CODE = 4001            # the phone was closed because the pairing code changed
@@ -473,6 +485,41 @@ def clean_state(m) -> dict | None:
     return out
 
 
+def clean_frame(data) -> tuple[dict, bytes] | None:
+    """A recorder's frame, [u32 little-endian header length][header JSON][JPEG], checked: the
+    header rebuilt with its known fields only ({seq, t, w, h, q, skip}: q a pose v1 quaternion,
+    normalised, or None; skip the frames the phone did not send so far, or None) and the JPEG's
+    start. None: drop it."""
+    if not isinstance(data, (bytes, bytearray)) or not 4 < len(data) <= MAX_FRAME:
+        return None
+    n = int.from_bytes(data[:4], "little")
+    if not 2 <= n <= MAX_FRAME_HEAD or len(data) < 4 + n + 4:
+        return None
+    try:
+        m = json.loads(bytes(data[4:4 + n]).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    jpeg = bytes(data[4 + n:])
+    if not isinstance(m, dict) or jpeg[:2] != b"\xff\xd8":
+        return None
+    seq, t, w, h = _num(m.get("seq")), _num(m.get("t")), m.get("w"), m.get("h")
+    if seq is None or seq < 0 or t is None:
+        return None
+    if not all(isinstance(v, int) and not isinstance(v, bool) and 16 <= v <= MAX_SIDE for v in (w, h)):
+        return None
+    q = _vec(m.get("q"), 4) if m.get("q") is not None else None
+    if m.get("q") is not None and q is None:
+        return None
+    if q is not None:
+        n_q = math.sqrt(sum(v * v for v in q))
+        if not 0.5 < n_q < 2:
+            return None
+        q = [v / n_q for v in q]
+    skip = m.get("skip")                             # a count, for the stats only: else left out
+    skip = skip if isinstance(skip, int) and not isinstance(skip, bool) and 0 <= skip < 2 ** 31 else None
+    return {"seq": int(seq), "t": float(t), "w": w, "h": h, "q": q, "skip": skip}, jpeg
+
+
 def _parse(raw) -> dict | None:
     if not isinstance(raw, str) or len(raw) > 65536:
         return None
@@ -529,6 +576,12 @@ class LiveHub:
         self.state: dict | None = None               # the view's last state, without the site
         self.site: dict = {"spots": [], "groups": [], "start_spot": None}   # its cameras
         self.site_name: str | None = None            # the view's site (a change: a new site)
+        # realtime (plans/live_controller/10): the tracker frames go to while the laptop is in
+        # the realtime mode (live_track.LiveTracker; None: off, /ws/record refused), and the
+        # one recorder page connected (its socket and page id)
+        self.recorder = None
+        self.rec_ws = None
+        self.rec_id: str | None = None
         self.bound: dict[str, int] = {}
         self._loop = None
         self._stop = None
@@ -612,7 +665,22 @@ class LiveHub:
                 "url": urls[0]["url"] if urls else None, "phone_urls": urls,
                 "view_url": f"ws://127.0.0.1:{view_port}/ws/view",
                 "fingerprint": fingerprint(self.cert) if self.cert else None,
-                "phones": len(self.players), "views": len(self.views)}
+                "phones": len(self.players), "views": len(self.views),
+                "realtime": self.recorder is not None, "recorder": self.rec_ws is not None}
+
+    def set_recorder(self, sink) -> None:
+        """The realtime mode on (sink: what takes the frames, live_track.LiveTracker) or off
+        (None: the recorder page is closed). Phones are told (their Record button)."""
+        self.recorder = sink
+        if self.running:
+            self._loop.call_soon_threadsafe(self._recorder_changed)
+
+    def _recorder_changed(self) -> None:
+        import asyncio
+
+        if self.recorder is None and self.rec_ws is not None:
+            asyncio.ensure_future(self.rec_ws.close(CLOSE_REALTIME_OFF, "realtime is off"))
+        self._announce()
 
     # ---- loop
     def _run(self) -> None:
@@ -638,8 +706,9 @@ class LiveHub:
         ctx.set_alpn_protocols(["http/1.1"])
         common = {"compression": None, "server_header": None, "logger": _ws_logger(),
                   "ping_interval": 10, "ping_timeout": 10}
+        # max_size: a recorder's frame; a phone's messages are held to MAX_PHONE_MSG in _phone
         async with serve(self._phone, self.host, self.port, ssl=ctx,
-                         process_request=self._lan_request, max_size=4096, **common) as lan, \
+                         process_request=self._lan_request, max_size=MAX_FRAME, **common) as lan, \
                 serve(self._view, "127.0.0.1", self.view_port,
                       process_request=self._view_request, max_size=2 ** 16, **common) as view:
             self.bound = {"lan": lan.sockets[0].getsockname()[1],
@@ -664,6 +733,10 @@ class LiveHub:
                                      "the motus Live view again.\n")
         if url.path == "/ws/phone":
             return None                               # on to the socket handshake
+        if url.path == "/ws/record":                  # the recorder: only in the realtime mode
+            if self.recorder is None:
+                return conn.respond(409, "Realtime is off: pick Realtime in the motus Live view.\n")
+            return None
         name = STATIC.get(url.path)
         if name is None:
             return conn.respond(404, "Not found.\n")
@@ -698,6 +771,8 @@ class LiveHub:
 
         from websockets.exceptions import ConnectionClosed
 
+        if urlsplit(ws.request.path).path == "/ws/record":
+            return await self._record(ws)
         ip, t0 = _peer(ws), time.monotonic()
         poses = dropped = 0
         pid = parse_qs(urlsplit(ws.request.path).query).get("id", [""])[0]
@@ -729,6 +804,9 @@ class LiveHub:
         self._send_states(None if pl.spot else ws)   # who holds which, when it came back on one
         try:
             async for raw in ws:
+                if len(raw) > MAX_PHONE_MSG:          # as websockets' own max_size did
+                    await ws.close(1009, "message too big")
+                    break
                 m = _parse(raw)
                 if m is not None and m.get("type") == "ping":
                     await ws.send(json.dumps({"type": "pong", "id": _num(m.get("id"))}))
@@ -761,6 +839,111 @@ class LiveHub:
             self._announce()
             if mine and pl.spot is not None:
                 self._send_states()                  # its spot is free again
+
+    async def _record(self, ws) -> None:
+        """The recorder (plans/live_controller/10): one page at a time. On connecting it gets
+        {"type": "rec", "hello": true, "long_side"} (the laptop's frame size; it starts after).
+        Text: {"type": "rec", "action": "start", "w", "h", "resume", "height_m", "tilt_offset"
+        (both optional: the phone's calibration)} / {"type": "rec", "action": "stop"} / ping;
+        binary: frames (clean_frame) to the realtime tracker. It gets {"type":
+        "rec", ...the tracker's status} twice a second. Only connections and recordings are
+        logged, never frames."""
+        import asyncio
+
+        from websockets.exceptions import ConnectionClosed
+
+        ip, t0 = _peer(ws), time.monotonic()
+        pid = parse_qs(urlsplit(ws.request.path).query).get("id", [""])[0]
+        pid = pid if PHONE_ID.fullmatch(pid) else None
+        old = self.rec_ws
+        if old is not None and (pid is None or pid != self.rec_id):
+            self.log(f"refused a recorder from {ip}: one is connected")
+            await ws.close(CLOSE_RECORDER, "a recorder is connected")
+            return
+        self.rec_ws, self.rec_id = ws, pid
+        if old is not None:                          # the same page again: the older one goes
+            asyncio.ensure_future(old.close(CLOSE_REPLACED, "replaced by a newer connection"))
+        self.log(f"recorder connected from {ip}")
+        self._announce()
+        frames = dropped = 0
+        recording = False
+        sink = self.recorder
+        try:
+            await ws.send(json.dumps({"type": "rec", "hello": True,
+                                      "long_side": getattr(sink, "long_side", 1920)}))
+        except ConnectionClosed:
+            pass
+
+        async def report():
+            try:
+                while True:
+                    await asyncio.sleep(0.5)
+                    sink = self.recorder
+                    if sink is not None:
+                        await ws.send(json.dumps({"type": "rec", **sink.status()}))
+            except ConnectionClosed:
+                pass
+
+        ticker = asyncio.ensure_future(report())
+        try:
+            async for raw in ws:
+                sink = self.recorder
+                if sink is None:
+                    break
+                if isinstance(raw, (bytes, bytearray)):
+                    fr = clean_frame(raw)
+                    if fr is None or not recording or not sink.frame(*fr):
+                        dropped += 1
+                        continue
+                    frames += 1
+                    continue
+                m = _parse(raw)
+                if m is None:
+                    dropped += 1
+                elif m.get("type") == "ping":
+                    await ws.send(json.dumps({"type": "pong", "id": _num(m.get("id"))}))
+                elif m.get("type") == "rec" and m.get("action") == "start":
+                    w, h = m.get("w"), m.get("h")
+                    try:
+                        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (w, h)):
+                            raise ValueError("frame size: two whole numbers")
+                        kw = {}
+                        for key in ("height_m", "tilt_offset"):     # the phone's calibration (step 2)
+                            if m.get(key) is not None:
+                                if _num(m[key]) is None:
+                                    raise ValueError(f"{key}: a number")
+                                kw[key] = _num(m[key])
+                        res = sink.begin(w, h, resume=m.get("resume") is True, **kw)
+                    except (RuntimeError, ValueError) as e:
+                        await ws.send(json.dumps({"type": "rec", "error": str(e)}))
+                        continue
+                    recording = True
+                    self.log(("recording resumed" if res["resumed"] else "recording started")
+                             + f": {res['id']}")
+                    await ws.send(json.dumps({"type": "rec", "started": res["id"],
+                                              "resumed": res["resumed"]}))
+                elif m.get("type") == "rec" and m.get("action") == "stop":
+                    if recording:
+                        sink.end()
+                        recording = False
+                        self.log("recording stopped by the recorder")
+                    await ws.send(json.dumps({"type": "rec", "stopped": True}))
+                else:
+                    dropped += 1
+        except ConnectionClosed:
+            pass
+        finally:
+            ticker.cancel()
+            mine = self.rec_ws is ws
+            if mine:
+                self.rec_ws = None
+                if recording and self.recorder is not None:
+                    self.recorder.lost()             # it may come back (live_track.LOST_S)
+            dt = max(time.monotonic() - t0, 1e-6)
+            self.log(f"recorder ({ip}) left after {dt:.0f} s: {frames} frames ({frames / dt:.1f} "
+                     f"fps)" + (f", {dropped} dropped" if dropped else ""))
+            if mine:
+                self._announce()
 
     def _from_phone(self, ws, pl: _Player, out: dict) -> None:
         """One checked message of a numbered phone: a claim, or relayed to the views."""
@@ -924,8 +1107,9 @@ class LiveHub:
         players = [{"player": p.num, "spot": p.spot}
                    for p in sorted(self.players.values(), key=lambda p: p.num)]
         broadcast(self.views, json.dumps({**base, "players": players}))
+        rt = {"realtime": True} if self.recorder is not None else {}    # the phone's Record button
         for ws, pl in list(self.players.items()):
-            broadcast([ws], json.dumps({**base, "player": pl.num}))
+            broadcast([ws], json.dumps({**base, "player": pl.num, **rt}))
 
     async def _close_phones(self) -> None:
         for ws in list(self.phones):

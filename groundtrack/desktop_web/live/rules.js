@@ -342,6 +342,10 @@ export function segmentEndState(t, P, atEnd) {
    drawing of tracks.X (opts.mode "ground" / "hinge", as the tracks are drawn), made here once; or
    opts.rest = {X, state} (project's out for every point; null: at rest every point placed).
    opts.out64: X (and the rest drawing) as Float64Array.
+   opts.prev: the Rules of the same tracks before more points came (a growing recording, 10 step
+   3: points only appended, in frame order): its verdicts are kept, and the rest is judged again
+   only for the tracks that grew (the rest's verdict over a prefix does not change with what
+   follows it).
    this.out = {X (3n, NaN: nothing drawn), kind, cause, part}, updated in place; after each call
    this.dirty = [first, last] frame whose output changed ([Infinity, -1]: none). */
 export class Rules {
@@ -380,7 +384,28 @@ export class Rules {
     this.restKind = new Uint8Array(n);                 // SOLID: no rest given
     this.restPre = new Uint8Array(n);
     this.restLp = new Int32Array(Math.max(nT, 1)).fill(-1);
-    if (this.rest) for (let k = 0; k < nT; k++) this._rest(k, starts[k + 1] - starts[k], this.restKind);
+    const prev = opts.prev && opts.prev.n <= n ? opts.prev : null, was = prev ? prev._lengths() : null;
+    if (prev) {
+      const o = prev.out, m = prev.n;
+      this.out.X.set(o.X.subarray(0, 3 * m)); this.out.kind.set(o.kind.subarray(0, m));
+      this.out.cause.set(o.cause.subarray(0, m)); this.out.part.set(o.part.subarray(0, m));
+      this.restKind.set(prev.restKind.subarray(0, m));
+      this.restPre.set(prev.restPre.subarray(0, m));
+    }
+    for (let k = 0; k < nT; k++) {
+      const L = starts[k + 1] - starts[k], w = was && was.get(tracks.tid[order[starts[k]]]);
+      if (w) this.restLp[k] = w[1];                    // its prefix's rest: the same points
+      if (w && w[0] === L) continue;                   // no new point: its rest stays
+      if (this.rest) this._rest(k, L, this.restKind);
+    }
+  }
+
+  /** Each track's id -> [its points, its cached rest prefix] (for the Rules of more points). */
+  _lengths() {
+    const m = new Map(), tid = this.tr.tid;
+    for (let k = 0; k < this.nTracks; k++)
+      m.set(tid[this.order[this.starts[k]]], [this.starts[k + 1] - this.starts[k], this.restLp[k]]);
+    return m;
   }
 
   /** Every track (the whole clip, or after a reset): -> this.out. */

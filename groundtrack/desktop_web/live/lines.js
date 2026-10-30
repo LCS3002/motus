@@ -23,10 +23,20 @@ export function lineMaterial(opts = {}) {
 
 export class Segs {
   constructor(cap, material, { distances = false, order = 0 } = {}) {
-    this.cap = Math.max(1, cap | 0);
-    this.pos = new Float32Array(6 * this.cap);
-    this.col = new Float32Array(6 * this.cap).fill(1);
-    const g = new LineSegmentsGeometry();
+    this.geo = new LineSegmentsGeometry();
+    this.distances = distances;
+    this._buffers(Math.max(1, cap | 0));
+    this.obj = new LineSegments2(this.geo, material);
+    this.obj.frustumCulled = false;
+    this.obj.renderOrder = order;
+    this.n = 0;
+  }
+
+  _buffers(cap) {
+    const g = this.geo, old = this.pos ? { pos: this.pos, col: this.col, dist: this.dist } : null;
+    this.cap = cap;
+    this.pos = new Float32Array(6 * cap);
+    this.col = new Float32Array(6 * cap).fill(1);
     const buf = (arr, stride) => {
       const b = new THREE.InstancedInterleavedBuffer(arr, stride, 1);
       b.setUsage(THREE.DynamicDrawUsage);
@@ -38,18 +48,25 @@ export class Segs {
     g.setAttribute("instanceEnd", new THREE.InterleavedBufferAttribute(this.pb, 3, 3));
     g.setAttribute("instanceColorStart", new THREE.InterleavedBufferAttribute(this.cb, 3, 0));
     g.setAttribute("instanceColorEnd", new THREE.InterleavedBufferAttribute(this.cb, 3, 3));
-    if (distances) {
-      this.dist = new Float32Array(2 * this.cap);
+    if (this.distances) {
+      this.dist = new Float32Array(2 * cap);
       this.db = buf(this.dist, 2);
       g.setAttribute("instanceDistanceStart", new THREE.InterleavedBufferAttribute(this.db, 1, 0));
       g.setAttribute("instanceDistanceEnd", new THREE.InterleavedBufferAttribute(this.db, 1, 1));
     }
-    g.instanceCount = 0;
-    this.geo = g;
-    this.obj = new LineSegments2(g, material);
-    this.obj.frustumCulled = false;
-    this.obj.renderOrder = order;
-    this.n = 0;
+    if (old) {                                     // what was written stays
+      this.pos.set(old.pos.subarray(0, this.pos.length)); this.col.set(old.col.subarray(0, this.col.length));
+      if (old.dist) this.dist.set(old.dist.subarray(0, this.dist.length));
+    }
+    g.instanceCount = Math.min(this.n || 0, cap);
+  }
+
+  /** Room for at least cap segments (doubling; the object, its material and what was written stay). */
+  reserve(cap) {
+    if (cap <= this.cap) return;
+    this.geo.dispose();                            // the old GPU buffers go; the geometry is uploaded again
+    this._buffers(Math.max(cap | 0, 2 * this.cap));
+    if (this.n) this.commit(this.n);
   }
 
   get material() { return this.obj.material; }
