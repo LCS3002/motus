@@ -1222,6 +1222,41 @@ def test_the_hold_comes_from_gravity_not_the_screen_lock():
     assert out["fit"] == 90                                     # sideways: kept; over, upright: changed
 
 
+def test_a_steering_phone_rolled_about_its_screen_turns_smoothly():
+    """31 Oct, the user: rolling the phone about its screen's axis (a steering wheel) snapped Live's
+    camera where the hold turned to landscape (~56 deg): the hold changed by 90 deg mid-roll. The
+    steering page keeps the hold it settled at the start (and at Zero): rolled 0 -> 120 deg in 5 deg
+    steps, every step turns the camera 5 deg, while a hold decided at each reading jumps."""
+    from scipy.spatial.transform import Rotation
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    start = Rotation.from_euler("ZXY", [30, 60, 0], degrees=True)        # upright, looking 30 deg down
+    rolls = [(start * Rotation.from_euler("z", r, degrees=True)).as_euler("ZXY", degrees=True).tolist()
+             for r in range(0, 125, 5)]
+    src = (live_hub.PHONE_WEB / "phone.js").as_uri()
+    code = (f'import {{holdAngle, cameraQuaternion}} from "{src}";'
+            f"const rolls = {json.dumps(rolls)};"
+            "const h0 = holdAngle(...rolls[0], null, 0);"
+            "let prev = h0; const open = rolls.map(e => (prev = holdAngle(...e, null, prev)));"
+            "console.log(JSON.stringify({h0, open, kept: rolls.map(e => cameraQuaternion(...e, h0)),"
+            "  each: rolls.map((e, i) => cameraQuaternion(...e, open[i]))}));")
+    r = subprocess.run([node, "--input-type=module", "-e", code], capture_output=True,
+                       encoding="utf-8", timeout=60, check=False)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    step = lambda qs: [math.degrees(2 * math.acos(min(1, abs(np.dot(a, b))))) for a, b in zip(qs, qs[1:])]
+    assert out["h0"] == 0 and len(set(out["open"])) > 1                  # decided each reading: it turns
+    assert step(out["kept"]) == pytest.approx([5] * 24, abs=1e-6)         # kept: 5 deg a step, no jump
+    assert max(step(out["each"])) > 80                                    # (the snap the user saw)
+    page = (live_hub.PHONE_WEB / "phone.js").read_text(encoding="utf-8")
+    assert "if (held == null) held = holdAngle(e.alpha, e.beta, e.gamma, null, screenAngle());" in page
+    assert "held = holdAngle(e.alpha, e.beta, e.gamma, null, held" not in page   # not at each reading
+    zero = page.split('ui.zero.addEventListener("click"')[1].split("});")[0]
+    assert "if (h !== held && sendPose(q, \"ok\")) { held = h; lastQ = q; draw(); }" in zero
+    assert zero.index("sendPose(q") < zero.index('send({type: "zero"')   # Live's zero in the new hold
+
+
 def test_phone_gain_runs_0_1_to_3_and_its_ticks_sit_on_their_values():
     node = shutil.which("node")
     if node is None:

@@ -173,11 +173,16 @@ function boot() {
   window.addEventListener("blur", () => letGoSpace());
 
   // ---- orientation -> pose, at most 60 Hz
-  let held = null;                                         // the screen angle held at (holdAngle)
+  // The hold (holdAngle) is settled at the first reading and at Zero, then kept while the phone steers
+  // (31 Oct, the user: rolling the phone about its screen's axis snapped Live's camera 90 deg where the
+  // hold turned to landscape). Live turns its camera by the phone's turn since zero, the same in any
+  // hold kept: a roll rolls it, smoothly.
+  let held = null, lastE = null;                           // the hold; the last reading [alpha, beta, gamma]
   function onOrient(e) {
     if (e.alpha == null || e.beta == null || e.gamma == null) return;
     if (!gotMotion) { gotMotion = true; note(""); }
-    held = holdAngle(e.alpha, e.beta, e.gamma, null, held ?? screenAngle());
+    lastE = [e.alpha, e.beta, e.gamma];
+    if (held == null) held = holdAngle(e.alpha, e.beta, e.gamma, null, screenAngle());
     let q = cameraQuaternion(e.alpha, e.beta, e.gamma, held);
     if (lastQ && q[0] * lastQ[0] + q[1] * lastQ[1] + q[2] * lastQ[2] + q[3] * lastQ[3] < 0)
       q = q.map(v => -v);                      // same hemisphere as the last one: no sign flips
@@ -193,10 +198,11 @@ function boot() {
   }
 
   function sendPose(q, status) {
-    if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 2048) return;   // late: skip, never queue
+    if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 2048) return false;   // late: skip, never queue
     ws.send(JSON.stringify({type: "pose", v: 1, src: "web", seq: seq++,
       t: performance.now() / 1000, q: q.map(v => +v.toFixed(6)), p: null, status}));
     sent++;
+    return true;
   }
 
   function draw() {
@@ -369,6 +375,10 @@ function boot() {
   function control(action, value = null) { send({type: "control", action, value}); }
 
   ui.zero.addEventListener("click", () => {
+    if (lastE) {                                  // the hold settled again: Live's zero taken in it
+      const h = holdAngle(...lastE, null, held), q = cameraQuaternion(...lastE, h);
+      if (h !== held && sendPose(q, "ok")) { held = h; lastQ = q; draw(); }
+    }
     send({type: "zero"});
     ui.zero.classList.remove("flash");
     void ui.zero.offsetWidth;
