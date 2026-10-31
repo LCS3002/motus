@@ -145,8 +145,8 @@ STATE_FIELDS = {"clip": "text", "clips": "texts", "playing": "bool", "time": "nu
                 "start_spot": "name", "site": "text"}
 SITE_FIELDS = ("spots", "groups", "start_spot", "site")         # the site: kept apart
 SPOT_FIELDS = {"clip": "text", "group": "text", "in_scene": "bool", "gain": "number",
-               "scale": "number", "space_held": "bool", "space_tilted": "bool"}
-TO_PHONES = ("clip", "group")                                   # of a spot, besides its holder
+               "scale": "number", "space_held": "bool", "space_tilted": "bool", "locked": "bool"}
+TO_PHONES = ("clip", "group", "locked")                         # of a spot, besides its holder
 OWN_FIELDS = ("gain", "scale", "space_held", "space_tilted")    # a phone's: its own spot's
 MAX_PLAYERS = 4
 MAX_PHONE_MSG = 4096             # a phone's message (pose, control): larger ones close it (1009)
@@ -1049,12 +1049,13 @@ class LiveHub:
         return next((n for n in range(1, MAX_PLAYERS + 1) if n not in taken), None)
 
     def _claim(self, pl: _Player, name: str | None) -> bool:
-        """pl takes the spot `name` (None: lets its spot go). One phone per spot: a taken or
-        unlisted spot is refused. Whether anything changed."""
+        """pl takes the spot `name` (None: lets its spot go). One phone per spot: a taken,
+        locked (the laptop's padlock) or unlisted spot is refused. Whether anything changed."""
         if name == pl.spot:
             return False
         if name is not None and (name not in self._spot_names()
-                                 or any(p.spot == name for p in self.players.values())):
+                                 or any(p.spot == name for p in self.players.values())
+                                 or any(s["name"] == name and s.get("locked") for s in self.site["spots"])):
             return False
         self._let_go(pl)                             # SPACE never follows it to another spot
         pl.spot = name

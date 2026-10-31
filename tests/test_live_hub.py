@@ -688,6 +688,23 @@ def test_the_laptop_releases_a_camera_its_phone_stays_and_picks(hub):
             assert recv(b, "state")["spot"] == "6366"
 
 
+def test_a_camera_the_laptop_locked_is_refused_and_the_phones_see_it(hub):
+    locked = {**SITE, "spots": [{**s, "locked": True} if s["name"] == "6366" else s for s in SITE["spots"]]}
+    with view(hub) as v:
+        v.send(json.dumps({**SHARED, **locked}))
+        with phone(hub) as a:
+            st = recv(a, "state", pred=lambda m: m["spot"] == "6354")
+            by = {s["name"]: s for s in st["spots"]}
+            assert by["6366"]["locked"] is True and "locked" not in by["6354"]
+            recv(v, "hub", pred=lambda m: m["players"] == [{"player": 1, "spot": "6354"}])
+            claim(a, "6366")                                      # locked: refused
+            with pytest.raises(TimeoutError):
+                recv(v, "hub", timeout=0.3)
+            v.send(json.dumps({**SHARED, **SITE}))                # unlocked: it may take it
+            claim(a, "6366")
+            assert recv(v, "hub")["players"] == [{"player": 1, "spot": "6366"}]
+
+
 def test_the_first_site_name_lets_nothing_go(hub):
     with view(hub) as v:
         v.send(json.dumps({**SHARED, **{k: x for k, x in SITE.items() if k != "site"}}))

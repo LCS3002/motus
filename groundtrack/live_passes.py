@@ -75,7 +75,8 @@ two rows everything held. "recording": {"format": "motus-live-rec", "version": 1
                   clock reached the end), play, pause, seek (T), rate, space_press / space_release
                   (who), level, zero (src), gain, scale, trails, stack, site (the new site),
                   camera_join {join_frame} / camera_leave, phone_join {spot} / phone_leave /
-                  phone_spot, undo, clear, smooth (the camera's Smooth: true / false).
+                  phone_spot, undo, clear, smooth (the camera's Smooth: true / false), lock (the
+                  layers' padlock: true / false), camera_add (+ Camera: the laptop added it).
 A replay (live/replay.js) applies the camera rows in k order, each camera starting at its
 camera_join's join_frame (its drawing reset there), and redraws exactly what the pass drew.
 """
@@ -120,7 +121,7 @@ CLOCK_PLAYING, CLOCK_AT_END = 1, 2
 CHANGED, HELD, LEVELLING, TILTED, PERFORMED, JOINED, SMOOTH = 1, 2, 4, 8, 16, 32, 64
 EVENTS = ("pass_start", "pass_end", "end", "play", "pause", "seek", "rate", "space_press", "space_release",
           "level", "zero", "gain", "scale", "trails", "stack", "site", "camera_join", "camera_leave",
-          "phone_join", "phone_leave", "phone_spot", "undo", "clear", "smooth")
+          "phone_join", "phone_leave", "phone_spot", "undo", "clear", "smooth", "lock", "camera_add")
 MAX_REC_BYTES = 1 << 30
 
 

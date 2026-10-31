@@ -158,7 +158,7 @@ let L = null;
 /* A saved pass being replayed (startReplay): {q, m (its manifest), play (replay.js Replay), spots
    (Set: its cameras), byName, mode ("watch" | "check" | "render"), t0, speed, done}. */
 let R = null;
-let link = null, mouse = null, hubInfo = null, sites = [];
+let link = null, mouse = null, hubInfo = null, sites = [], recordings = [];
 const lastStart = {};                           // site -> the start camera's run last used (this session)
 const input = { get current() { return L && L.focus ? L.focus.inp : null; } };   // the focus camera's pose input
 const panels = new Panels({ renderer, scene: scene3, host: $("#players"), view: panelView,
@@ -522,7 +522,8 @@ async function openSite(run, { live = null } = {}) {
         groups: info.groups || [], startName: info.start_spot, startRun: start.run, origin0: null, notes: info.notes || [],
         spots: [], focus: null, locked: null, players: [], section: null, loading: new Map(), tints: new Map(),
         loadTimes: {}, extra: new Map(), keep: info.start_spot, solo: null, framed: null, boxes: new Set(), lastTint: new Map(), parked: [], ghosts: new Set(),
-        removing: new Map(), released: new Map(), markNext: null, live };
+        removing: new Map(), released: new Map(), markNext: null, live, hiddenCams: new Set(), lockedCams: new Set(),
+        inPlay: new Set([info.start_spot]) };
   P.plays = 0;
   lastStart[L.site] = start.run;
   loading("the machine at rest");
@@ -604,7 +605,7 @@ function setFocus(s, notify = true) {
 }
 
 function nextFocus(d = 1) {
-  const all = L ? [...L.spots, ...L.parked] : [];
+  const all = L ? [...L.spots, ...L.parked].filter((s) => s === L.focus || !isLocked(s.name)) : [];
   if (all.length < 2) return;
   const i = all.indexOf(L.focus);
   markCamera(all[(i + d + all.length) % all.length]);
@@ -615,15 +616,18 @@ const heldBy = (name) => (L ? L.players.find((p) => p.spot === name && L.release
 
 /* A click on a camera (or Tab): the marked camera, which the mouse, the keys and the controls act
    on. One no phone holds becomes the mouse's camera: in play from here (a frozen one comes back where
-   it stood); the mouse's camera before, if no phone holds it, leaves play (frozen, its layer kept). */
+   it stood); the mouse's camera before stays in play where it stands (31 Oct, the user: they all run
+   at once; only the padlock freezes one). */
 function markCamera(s) {
   if (!L || !s) return;
+  if (isLocked(s.name)) { selectCamera(s.name); flash(`${s.name} is locked · its padlock unlocks it`); return; }
   if (L.spots.includes(s)) {
     setFocus(s);
     if (!heldBy(s.name) && L.keep !== s.name) { L.keep = s.name; syncScene(); }
     return;
   }
   if (!L.parked.includes(s)) return;
+  L.inPlay.add(s.name);
   L.keep = s.name;
   L.markNext = s.name;
   flash(`${s.name}: the mouse's camera`);
@@ -637,6 +641,7 @@ function removeCamera(name) {
   if (!L || R) return;
   const s = spotOf(name) || parkedOf(name);
   if (!s || L.removing.has(name)) return;
+  if (isLocked(name)) { flash(`${name} is locked · unlock it to remove it`); return; }
   const others = [...L.spots, ...L.parked].filter((x) => x !== s && !L.removing.has(x.name));
   if (!others.length) { flash("The last camera stays (the view is never empty)"); return; }
   const holder = heldBy(name);
@@ -644,6 +649,8 @@ function removeCamera(name) {
   if (holder) { L.released.set(name, holder.player); if (link) link.sendMessage({ type: "release", spot: name }); }
   const st = newStep("remove", { camera: name, tintI: s.tintI, pose: camCopy(s.parked && s.posedBy ? s.posedBy.pose : s.inp.cam) });
   takeLayers(st, name);
+  L.hiddenCams.delete(name);
+  L.inPlay.delete(name);
   if (L.solo === s) L.solo = null;
   if (L.framed === s) L.framed = null;
   if (s.parked) dropSpot(s);
@@ -660,6 +667,78 @@ function removeCamera(name) {
   syncGhosts();
   flash(`${name}: removed${holder ? ` · P${holder.player} picks again` : ""} · Undo brings it back`);
   sceneChanged();
+}
+
+/* The layers' padlock (31 Oct, the user: "lock them there like a Photoshop layer"): a locked camera
+   stays where it is. Nobody moves it: in play it leaves play (frozen, what it drew kept as its
+   layer), its phone picks again and the phones see it locked; a click selects it only. Its layer
+   stays: Clear layer, Clear all, Remove, Undo and Load leave it (a replay still shows it). One
+   camera stays unlocked (the view always has one in play). Recorded with the pass. */
+function isLocked(name) { return !!L && L.lockedCams.has(name); }
+
+function setLock(name, on) {
+  if (!L || !name) return;
+  const s = spotOf(name) || parkedOf(name);
+  if (!s || !!on === isLocked(name)) return;
+  if (R) { flash("Lock after the replay"); return; }
+  if (on) {
+    if (s.growing) { flash(`${name} is recording: it cannot be locked`); return; }
+    const free = [...L.spots, ...L.parked].filter((x) => x !== s && !isLocked(x.name) && !L.removing.has(x.name));
+    if (!free.length) { flash("One camera stays unlocked: the view always has one in play"); return; }
+    L.lockedCams.add(name);
+    const holder = heldBy(name);
+    if (holder) { L.released.set(name, holder.player); if (link) link.sendMessage({ type: "release", spot: name }); }
+    if (L.spots.includes(s)) {
+      if (L.keep === name) L.keep = null;
+      if (L.focus === s) {                       // the mouse moves on to another camera
+        const next = L.spots.find((x) => x !== s && !isLocked(x.name)) || free[0];
+        if (L.spots.includes(next)) { setFocus(next, false); if (!heldBy(next.name)) L.keep = next.name; }
+        else markCamera(next);
+      }
+      syncScene();
+    }
+  } else {
+    L.lockedCams.delete(name);
+    syncScene();                                 // in play again, where it stands (when it was)
+  }
+  rec.event("lock", { camera: name, value: !!on });
+  flash(on ? `${name}: locked · nobody moves it; Clear, Remove, Undo and Load leave its layer`
+           : `${name}: unlocked${L.inPlay.has(name) ? " · in play again" : ""}`);
+  sceneChanged();
+}
+
+/** The locked camera whose layers step st would change (its own, or the ones it brings back), or null. */
+function lockedBy(st) {
+  const names = [...past.items.filter((it) => it.key === st.key).map((it) => it.cam), ...(st.replaced || []).map((d) => d.cam)];
+  return names.find(isLocked) || null;
+}
+
+/* The layers' eye (31 Oct): a camera and its layers hidden in the main view (it goes on drawing and
+   is recorded; its phone's box stays). The collage's output leaves a hidden camera out; Output's
+   Camera still gives it. */
+function toggleHidden(name) {
+  if (!L || !(spotOf(name) || parkedOf(name))) return;
+  const off = !L.hiddenCams.has(name);
+  if (off) L.hiddenCams.add(name); else L.hiddenCams.delete(name);
+  flash(`${name}: ${off ? "hidden in the view · the eye shows it" : "shown"}`);
+  syncSpots();
+}
+
+/* + Camera (31 Oct): one of the site's cameras into the scene from the laptop, as the mouse's camera
+   (the others run on where they stand). One in the scene: marked. */
+function addCamera(name) {
+  if (!L || R || !name) return;
+  const s = spotOf(name) || parkedOf(name);
+  if (s) { markCamera(s); return; }
+  if (!L.cams.some((c) => c.name === name) || L.loading.has(name)) return;
+  L.inPlay.add(name);
+  L.keep = name;
+  L.markNext = name;
+  sel.name = name;
+  rec.event("camera_add", { camera: name });
+  flash(`${name}: into the scene · the mouse's camera`);
+  syncScene();
+  syncSpots();
 }
 
 // ---------------------------------------------------------------------------- views
@@ -774,7 +853,53 @@ function unlock() {
   S.view = 0;
   $$("#views [data-view]").forEach((b) => b.setAttribute("aria-selected", "false"));
 }
-$("#stage").addEventListener("pointerdown", (e) => { if (e.button === 0 && !e.altKey && L && L.locked && !anim.to) unlock(); }, true);
+$("#stage").addEventListener("pointerdown", (e) => { if (e.button === 0 && !e.altKey && !e.shiftKey && L && L.locked && !anim.to) unlock(); }, true);
+
+/* Shift+click a camera in the 3D view (31 Oct, the user): as a click on its layer, it is selected and
+   the mouse moves it (a locked one: selected only). The camera whose frustum passes nearest, within
+   PICK_PX; a drag (Shift: the orbit's pan) picks nothing. */
+const PICK_PX = 12;
+const pickAt = { x: 0, y: 0, id: null };
+$("#stage").addEventListener("pointerdown", (e) => {
+  if (e.button === 0 && e.shiftKey) Object.assign(pickAt, { x: e.clientX, y: e.clientY, id: e.pointerId });
+}, true);
+window.addEventListener("pointerup", (e) => {
+  if (e.pointerId !== pickAt.id) return;
+  pickAt.id = null;
+  if (!L || R || Math.hypot(e.clientX - pickAt.x, e.clientY - pickAt.y) > 5) return;
+  const s = cameraAt(e.clientX, e.clientY);
+  if (s) markCamera(s);
+});
+
+/** The camera shown in the main view whose drawn frustum (the rays from its centre, the image's
+    edges) passes nearest to the screen point (x, y), within PICK_PX; null if none. */
+function cameraAt(x, y) {
+  const r = canvas.getBoundingClientRect(), v = new THREE.Vector3();
+  const screen = (p, m) => {
+    v.set(p[0], p[1], p[2]).applyMatrix4(m).project(camera);
+    return v.z > -1 && v.z < 1 ? [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height] : null;
+  };
+  let best = null, bd = PICK_PX;
+  for (const s of [...L.spots, ...L.parked]) {
+    const lines = s.cams.virt;
+    if (!lines.corners || !lines.group.visible || L.hiddenCams.has(s.name) || (L.solo && L.solo !== s)) continue;
+    const m = lines.group.matrixWorld, c = screen(lines.C, m), q = lines.corners.map((p) => screen(p, m));
+    for (let i = 0; i < 4; i++)
+      for (const [a, b] of [[c, q[i]], [q[i], q[(i + 1) % 4]]]) {
+        if (!a || !b) continue;
+        const d = segDist(x, y, a, b);
+        if (d < bd) { bd = d; best = s; }
+      }
+  }
+  return best;
+}
+
+/** The distance from the point (x, y) to the segment a-b (screen pixels). */
+function segDist(x, y, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / l2)) : 0;
+  return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy);
+}
 $("#stage").addEventListener("wheel", () => { if (L && L.locked && !anim.to) unlock(); }, { capture: true, passive: true });
 orbit.addEventListener("start", () => { if (anim.to) anim.to = null; if (S.view === 1 || S.view === 2) S.view = 0; });
 
@@ -796,8 +921,9 @@ function panelView(e, cam, aspect) {
     mouse's: the view is never empty); a replay's and a sheet's. */
 function wanted() {
   const w = new Set();
-  for (const p of L.players) if (L.cams.some((c) => c.name === p.spot) && L.released.get(p.spot) !== p.player) w.add(p.spot);
-  if (L.keep) w.add(L.keep);
+  for (const n of L.inPlay) if (!isLocked(n)) w.add(n);
+  for (const p of L.players) if (L.cams.some((c) => c.name === p.spot) && L.released.get(p.spot) !== p.player && !isLocked(p.spot)) w.add(p.spot);
+  if (L.keep && !isLocked(L.keep)) w.add(L.keep);
   if (R) for (const n of R.names) w.add(n);
   if (SHEET) for (const n of SHEET.names) w.add(n);
   for (const n of L.removing.keys()) w.delete(n);
@@ -805,17 +931,19 @@ function wanted() {
 }
 
 /* The phones' cameras ([{player, spot: name}], the hub's players): a camera a phone picked comes
-   into play (one in the scene is taken over), one no phone holds any more leaves play (frozen, it
-   stays in the scene until removed). A phone that takes the mouse's camera takes it over; when the
-   last phone lets go, its camera is the mouse's (the focus when it was one of theirs). */
+   into play (one in the scene is taken over) and stays in play when no phone holds it any more (31
+   Oct; was: frozen), until it is locked or removed. A phone that takes the mouse's camera takes it
+   over; when the last phone lets go, its camera is the mouse's (the focus when it was one of theirs). */
 function setPlayers(list) {
   if (!L) return;
   const before = new Set(L.players.map((p) => p.spot));
   L.players = (list || []).filter((p) => p && p.spot != null && L.cams.some((c) => c.name === p.spot));
   for (const [n, pl] of [...L.released]) if (!L.players.some((p) => p.spot === n && p.player === pl)) L.released.delete(n);
-  if (L.keep && heldBy(L.keep)) L.keep = null;
-  if (!L.players.some((p) => heldBy(p.spot)) && !L.keep)
-    L.keep = L.focus && before.has(L.focus.name) ? L.focus.name : [...before].filter((n) => spotOf(n)).pop() || (L.focus && L.focus.name);
+  for (const p of L.players) if (L.released.get(p.spot) !== p.player) L.inPlay.add(p.spot);
+  if (L.keep && (heldBy(L.keep) || isLocked(L.keep))) L.keep = null;
+  if (!L.players.some((p) => heldBy(p.spot) && !isLocked(p.spot)) && !L.keep)
+    L.keep = [L.focus && before.has(L.focus.name) ? L.focus.name : null, ...[...before].filter((n) => spotOf(n)).reverse(),
+              L.focus && L.focus.name, ...L.spots.map((s) => s.name)].find((n) => n && !isLocked(n)) || null;
   syncScene();
   refreshPlayers();
   syncSpots();
@@ -1080,6 +1208,7 @@ function takeBack(st) {
    replay draws the same). */
 function clearCamera(name) {
   if (!L || R || !name) return;
+  if (isLocked(name)) { flash(`${name} is locked · unlock it to clear it`); return; }
   const s = spotOf(name), live = !!s && drew(s);
   if (!hasLayer(name) && !live) { flash(`${name}: nothing to clear`); return; }
   rec.event("clear_camera", { camera: name, player: s ? s.player : null });
@@ -1189,10 +1318,16 @@ function undoPass() {
   for (let i = P.steps.length - 1; i >= 0 && !done; i--) {
     const st = P.steps[i];
     if (st === P.cur) {
-      if (hasDrawing(st)) { dropCurrent("undo"); done = "this play is off the view (it is saved)"; }
+      if (hasDrawing(st)) {
+        const locked = lockedBy(st);
+        if (locked) { done = `${locked} is locked (unlock it to undo)`; break; }
+        dropCurrent("undo"); done = "this play is off the view (it is saved)";
+      }
       continue;
     }
     if (!st.replaced) break;                       // too old
+    const locked = lockedBy(st);
+    if (locked) { done = `${locked} is locked (unlock it to undo)`; break; }
     takeBack(st);
     done = st.kind === "clear" || st.kind === "remove" ? `${st.camera} is back` : st.kind === "play" ? "the play before is off the view" :
            `the ${st.kind === "load" ? "loaded" : "replayed"} pass ${st.id || ""} is off the view`;
@@ -1204,16 +1339,28 @@ function undoPass() {
   publishState(true);
 }
 
-/** Clear: every layer leaves the view (the play being drawn too). Files stay. */
+/** Clear: every layer leaves the view (the play being drawn too), but the locked cameras'. Files stay. */
 function clearPasses() {
   if (!L || R) return;
   rec.event("clear");
-  past.clear();
-  P.steps = [P.cur];
-  P.cur.replaced = [];
-  P.byKey = new Map([[P.cur.key, P.cur]]);
+  const cur = P.cur, kept = past.items.filter((it) => isLocked(it.cam));
+  for (const it of past.items.slice()) if (!kept.includes(it)) past.drop(it);
+  const mine = kept.filter((it) => it.key === cur.key).map(layerData);    // locked during this play
+  const steps = [...new Set(kept.map((it) => P.byKey.get(it.key)))].filter((st) => st && st !== cur);
+  for (const st of steps) st.replaced = null;      // kept; no longer undone
+  P.steps = [...steps, cur];
+  cur.replaced = [];
+  P.byKey = new Map(P.steps.map((st) => [st.key, st]));
   dropCurrent("clear");
-  flash("Clear: nothing in the view");
+  if (mine.length) {                               // they stay with the play they were drawn in
+    cur.replaced = null;
+    P.steps.splice(P.steps.length - 1, 0, cur);
+    P.byKey.set(cur.key, cur);
+    restoreLayers(mine);
+    syncGhosts();
+  }
+  const names = [...new Set(kept.map((it) => it.cam))];
+  flash(names.length ? `Clear: only the locked layers stay (${names.join(", ")})` : "Clear: nothing in the view");
   syncSpots();
   publishState(true);
 }
@@ -1269,13 +1416,17 @@ async function loadPass(q, poses = null) {
       got.push({ c, data, snap, offset: offsetFrom(c.origin || meta.origin, L.origin0) });
     }
     if (R) return;
+    const locked = got.filter((g) => isLocked(g.c.name)).map((g) => g.c.name);
+    if (locked.length === got.length) { flash(`Pass ${m.id}: its cameras are locked (${locked.join(", ")})`); return; }
     const st = newStep("load", { id: m.id, run: q.run });
     for (const g of got) {
+      if (locked.includes(g.c.name)) continue;
       if (!st.stacked) takeLayers(st, g.c.name);
       addLayer(st.key, g.c.name, g.data, g.snap, g.offset, g.c.tint || TINTS[0], camCopy(poses && poses.get(g.c.name)));
     }
     syncGhosts();
-    flash(`Pass ${m.id}: its layers on its cameras` + (skipped.length ? ` (not: ${skipped.join(", ")}, its package changed)` : ""));
+    flash(`Pass ${m.id}: its layers on its cameras` + (skipped.length ? ` (not: ${skipped.join(", ")}, its package changed)` : "") +
+          (locked.length ? ` (not on ${locked.join(", ")}: locked)` : ""));
     syncSpots();
     syncPasses();
   } catch (e) { note(`Pass ${q.id}: ${e.message}`); }
@@ -1394,6 +1545,7 @@ function finishReplay() {
     const st = newStep("replay", { id: R.q.id, run: R.q.run });
     for (const [name, snap] of dr) {
       const s = R.byName.get(name);
+      if (isLocked(name)) continue;
       if (!st.stacked) takeLayers(st, name);
       addLayer(st.key, name, s.data, snap, s.offset, s.tint, camCopy(R.play.cams.get(name)));
     }
@@ -1709,14 +1861,14 @@ function collageShot(names, { width, height }) {
 async function collageSheet(name = null) {
   if (!L || collageBusy) return;
   const what = name ? `${name} · sheet` : "Collage sheet";
-  const pick = () => collageLayers().filter((c) => !name || c.camera === name);
+  const pick = () => collageLayers().filter((c) => (name ? c.camera === name : !L.hiddenCams.has(c.camera)));
   const unsaved = (cs) => cs.some((c) => c.layers.some((l) => !l.id));
   collageBusy = true;
   outSay(`${what} · starting`);
   syncOutput();
   try {
     let cs = pick();
-    if (!cs.length) throw new Error(name ? "this camera has no layer" : "no layer in the view");
+    if (!cs.length) throw new Error(name ? "this camera has no layer" : "no layer shown in the view");
     if (unsaved(cs)) {                            // the play being drawn (or one still saving): saved first
       flash(`${what} · saving the play first`);
       outSay(`${what} · saving the play first`);
@@ -1754,13 +1906,13 @@ const FORMATS = { all: "Rhino, Houdini, GeoJSON", rhino: "Rhino", houdini: "Houd
 async function collageExport(name = null, fmt = "all", force = false) {
   if (!L || exportBusy) return;
   const what = `${name ? `${name} · export` : "Collage export"}${fmt === "all" ? "" : ` · ${FORMATS[fmt]}`}`;
-  const pick = () => collageLayers().filter((c) => !name || c.camera === name);
+  const pick = () => collageLayers().filter((c) => (name ? c.camera === name : !L.hiddenCams.has(c.camera)));
   exportBusy = true;
   outSay(`${what} · starting`);
   syncOutput();
   try {
     let cs = pick();
-    if (!cs.length) throw new Error(name ? "this camera has no layer" : "no layer in the view");
+    if (!cs.length) throw new Error(name ? "this camera has no layer" : "no layer shown in the view");
     if (cs.some((c) => c.layers.some((l) => !l.id))) {
       flash(`${what} · saving the play first`);
       if (!R && P.cur && hasDrawing(P.cur)) savePass(P.cur);
@@ -1924,7 +2076,7 @@ window.addEventListener("blur", () => mUp());     // never stuck
 function onPose(m) {
   if (!L) return;
   const s = m.src === "mouse" ? L.focus : spotOf(m.spot);
-  if (s && !(R && R.spots.has(s))) s.inp.pose(m);          // a camera being replayed follows its recording
+  if (s && !(R && R.spots.has(s)) && !isLocked(s.name)) s.inp.pose(m);   // a camera being replayed follows its recording
 }
 
 function zero(src = null, s = L && L.focus) {
@@ -2002,6 +2154,7 @@ function publishState(now = false) {
                                       gain: s ? s.inp.gain : 1, scale: s ? s.inp.scale : 1,
                                       space_held: s ? s.inp.held : false, space_tilted: s ? s.inp.tilted : false };
       if (c.group) o.group = c.group;
+      if (isLocked(c.name)) o.locked = true;
       return o;
     }),
     groups: L.groups, start_spot: L.startName, site: L.site,
@@ -2010,7 +2163,7 @@ function publishState(now = false) {
 
 // ---------------------------------------------------------------------------- the phone hub
 async function startHub() {
-  if (params.get("hub") === "0") { $("#phones").textContent = "Off"; return; }
+  if (params.get("hub") === "0") { $("#phones").textContent = $("#phones-n").textContent = "Off"; return; }
   try {
     const d = await postJson("/api/live/hub", { action: "start" });
     showHub(d);
@@ -2031,7 +2184,7 @@ async function startHub() {
       },
     });
   } catch (e) {
-    $("#phones").textContent = "Off";
+    $("#phones").textContent = $("#phones-n").textContent = "Off";
     $("#phone-note").textContent = `Phone link off: ${e.message}`;
   }
 }
@@ -2062,6 +2215,8 @@ function showPhones(n) {
   const el = $("#phones");
   el.textContent = `${n} phone${n === 1 ? "" : "s"} connected`;
   el.classList.toggle("on", n > 0);
+  $("#phones-n").textContent = String(n);
+  $("#phones-btn").classList.toggle("on", n > 0);
   if (hubInfo) hubInfo.phones = n;
 }
 
@@ -2103,54 +2258,71 @@ function syncTitle() {
   document.title = `motus · Live · ${L.title}`;
 }
 
-/* The cameras in the scene (and loading): each with its tint and who holds it, the marked one
-   framed. A click selects it and marks it; Shift+click selects it and focuses it (a frozen camera
-   stays frozen). Below: how many of the site's cameras are in, then the selected camera's block. */
+/* The layers (31 Oct, Photoshop's; was the Cameras list): a row per camera in the scene (and
+   loading), in the site's order: its eye (shown / hidden in the view), its tint, name and who moves
+   it, its padlock. A click selects it and marks it (the mouse moves it); Shift+click selects it and
+   focuses it (a frozen camera stays frozen). Below: + Camera, Remove, how many of the site's
+   cameras are in, then the selected camera's block. */
+const EYE_SVG = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true"><path d="M1.5 8s2.4-4.2 6.5-4.2S14.5 8 14.5 8s-2.4 4.2-6.5 4.2S1.5 8 1.5 8z"/><circle class="on" cx="8" cy="8" r="1.9"/><path class="off" d="M3 13 13 3"/></svg>`;
+const LOCK_SVG = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true"><rect x="3.5" y="7.5" width="9" height="6"/><path class="shut" d="M5.5 7.5V5.2a2.5 2.5 0 0 1 5 0v2.3"/><path class="open" d="M5.5 7.5V5.2a2.5 2.5 0 0 1 5 0"/></svg>`;
+
 function syncSpots() {
   const el = $("#spot-list");
   if (!L) { el.innerHTML = ""; delete el.dataset.key; $("#cam-sel").hidden = true; return; }
-  const loads = [...L.loading.keys(), ...L.ghosts].filter((n) => !spotOf(n) && !parkedOf(n));
-  const rows = [...L.spots.map((s) => ({ s, name: s.name, tint: s.tint })),
-                ...L.parked.map((s) => ({ s, name: s.name, tint: s.tint, parked: true })),
-                ...[...new Set(loads)].map((n) => ({ s: null, name: n, tint: TINTS[L.tints.get(n) || 0] }))];
+  const loads = new Set([...L.loading.keys(), ...L.ghosts].filter((n) => !spotOf(n) && !parkedOf(n)));
+  const rows = L.cams.map((c) => {
+    const s = spotOf(c.name) || parkedOf(c.name);
+    return s ? { s, name: c.name, tint: s.tint, parked: !!s.parked }
+      : loads.has(c.name) ? { s: null, name: c.name, tint: TINTS[L.tints.get(c.name) || 0] } : null;
+  }).filter(Boolean);
   const key = rows.map((r) => `${r.name}:${r.s ? (r.parked ? 2 : 1) : 0}`).join("|");
   if (el.dataset.key !== key) {
     el.dataset.key = key;
     el.innerHTML = "";
     for (const r of rows) {
-      const row = document.createElement("div"), b = document.createElement("button");
-      row.className = "spot-row";
+      const row = document.createElement("div");
+      row.className = "layer";
       row.dataset.name = r.name;
-      b.className = "spot";
+      row.innerHTML = `<button class="lyr-eye">${EYE_SVG}</button><button class="spot"><span class="sw"></span><span class="nm"></span>` +
+                      `<span class="who label"></span></button><button class="lyr-lock">${LOCK_SVG}</button>`;
+      const [eye, b, lock] = row.children;
       b.style.setProperty("--tint", r.tint);
-      b.innerHTML = `<span class="sw"></span><span class="nm"></span><span class="who label"></span>`;
       b.querySelector(".nm").textContent = r.name;
-      if (r.s) b.onclick = (e) => { if (e.shiftKey) { toggleFocus(r.s); selectCamera(r.s.name); } else markCamera(r.s); };
-      else b.disabled = true;
-      b.title = "Click: select it and mark it (the mouse and keys act on it; one no phone holds is the mouse's) · Shift+click or O: select it and focus (the view frames it / the whole scene, W)";
-      row.append(b);
+      b.title = "Click: select it and move it with the mouse (one a phone holds: its phone moves it) · Shift+click or O: focus (the view frames it; W: the whole scene)";
+      eye.title = "Shown in the view / hidden (it goes on drawing; the collage's output leaves it out)";
+      lock.title = "Lock: nobody moves it (its phone picks again), and Clear, Remove, Undo and Load leave its layer / unlock";
+      if (r.s) {
+        b.onclick = (e) => { if (e.shiftKey) { toggleFocus(r.s); selectCamera(r.s.name); } else markCamera(r.s); };
+        eye.onclick = () => toggleHidden(r.name);
+        lock.onclick = () => setLock(r.name, !isLocked(r.name));
+      } else eye.disabled = b.disabled = lock.disabled = true;
       el.appendChild(row);
     }
   }
   if (!selSpot()) sel.name = L.focus ? L.focus.name : null;
-  const rowEls = el.querySelectorAll(".spot-row");
-  rows.forEach((r, k) => {
-    const b = rowEls[k].firstChild;
+  el.querySelectorAll(".layer").forEach((row, k) => {
+    const r = rows[k], [eye, b, lock] = row.children, locked = isLocked(r.name), off = L.hiddenCams.has(r.name);
+    row.classList.toggle("selected", !!r.s && r.name === sel.name);
+    row.classList.toggle("parked", !!r.parked);
+    row.classList.toggle("locked", locked);
+    row.classList.toggle("off", off);
     b.setAttribute("aria-pressed", String(!!r.s && r.s === L.focus));
-    b.classList.toggle("selected", !!r.s && r.name === sel.name);
     b.classList.toggle("solo", !!r.s && r.s === L.solo);
-    b.classList.toggle("parked", !!r.parked);
+    eye.setAttribute("aria-pressed", String(!off));
+    lock.setAttribute("aria-pressed", String(locked));
     b.querySelector(".who").textContent = !r.s ? "loading" : (r.s === L.solo ? "alone · " : "") + whoOf(r.s);
   });
   syncCamSel();
-  const N = L.cams.length, F = L.parked.length;
-  $("#spot-sum").textContent = N > 1 ? `${L.spots.length + F} of ${N} cameras in the scene (${L.spots.length} in play` + (F ? `, ${F} frozen)` : ")") +
-                                       " · a phone picks one"
+  const N = L.cams.length, F = L.parked.length, n = L.spots.length + F;
+  $("#spot-sum").textContent = N > 1 ? `${n} of ${N} cameras in the scene (${L.spots.length} in play` + (F ? `, ${F} frozen)` : ")")
                                      : "The site's only camera";
+  $("#cam-add").disabled = !!R || n + loads.size >= N;
 }
 
-/** Who moves camera s: a phone (P1..), the mouse, a replay, or nobody (frozen). */
-const whoOf = (s) => (s.parked ? "frozen" : s.player != null ? `P${s.player}` : R && R.byName.has(s.name) ? "replay" : "mouse");
+/** Who moves camera s: a phone (P1..), the mouse (the marked one), a replay, or nobody (running where
+    it stands; frozen, locked). */
+const whoOf = (s) => (isLocked(s.name) ? "locked" : s.parked ? "frozen" : s.player != null ? `P${s.player}` : R && R.byName.has(s.name) ? "replay"
+                      : s === L.focus ? "mouse" : "running");
 
 /* The selected camera (30 Oct; was each camera's menu, its row's ⋯): the panel's camera block
    and Output's "Camera" act on it. It follows the marked camera (a click, Tab, a phone's panel);
@@ -2168,26 +2340,31 @@ function selectCamera(name) {
 function syncCamSel() {
   const s = selSpot();
   $("#cam-sel").hidden = !s;
+  $("#cm-remove").disabled = !s || !!R || isLocked(s.name) || L.spots.length + L.parked.length < 2;
   syncMouse();
   syncOutput();
   if (!s) return;
+  const locked = isLocked(s.name);
   $("#cm-name").textContent = `${s.name} · ${whoOf(s)}`;
   $("#cm-focus").setAttribute("aria-pressed", String(L.framed === s));
   $("#cm-solo").setAttribute("aria-pressed", String(L.solo === s));
   $("#cm-video").setAttribute("aria-pressed", String(L.boxes.has(s.name) && canBox(s)));
   $("#cm-video").disabled = !canBox(s);
   $("#cm-smooth").checked = s.inp.smooth;
-  $("#cm-smooth").disabled = !!(R && R.spots.has(s));        // a replayed camera follows its recording
+  $("#cm-smooth").disabled = !!(R && R.spots.has(s)) || locked;   // a replayed camera follows its recording
+  $("#cm-clear").disabled = locked;
 }
 
-/* Players: who holds which camera (a line per phone), and the mouse's controls for the marked
-   camera unless a phone holds it (then they are on its phone). */
+/* The selected camera's mouse controls (Zero, Gain, Scale) when the mouse moves it (the marked
+   camera, no phone holds it); else what moves it. And the phones' popup: who holds which camera. */
 function syncMouse() {
-  const s = L && L.focus, holder = s && heldBy(s.name);
-  $("#mouse-cam").textContent = !s ? "" : holder ? "· no camera" : `· ${s.name}`;
-  $("#cm-mouse").hidden = !s || !!holder;
-  $("#cm-phone").hidden = !holder;
-  $("#cm-phone").textContent = holder ? `The marked camera, ${s.name}, is P${holder.player}'s: zero, gain and scale on its phone. Click a camera no phone holds to move it with the mouse.` : "";
+  const s = selSpot(), holder = s && heldBy(s.name), mine = !!s && s === L.focus && !holder && !isLocked(s.name);
+  $("#cm-mouse").hidden = !mine;
+  const why = !s || mine ? "" : isLocked(s.name) ? "Locked: nobody moves it and its layer stays. Its padlock unlocks it."
+    : holder ? `P${holder.player} holds it: zero, gain and scale on its phone. Click a camera no phone holds to move it with the mouse.`
+    : s.parked ? "Frozen: click it to move it with the mouse." : "Running where it stands: click it to move it with the mouse.";
+  $("#cm-phone").hidden = !why;
+  $("#cm-phone").textContent = why;
   const el = $("#holders");
   const lines = !L ? [] : L.players.filter((p) => p.spot && L.released.get(p.spot) !== p.player)
     .map((p) => [`P${p.player}`, p.spot, (spotOf(p.spot) || {}).tint]);
@@ -2205,50 +2382,121 @@ function syncMouse() {
   }
 }
 
-/* The site menu (the top bar's site name, 30 Oct; was a section of the panel): the sites with Live
-   packages, the open one marked; Realtime; the recordings (the realtime page). */
+/* The site (the panel's top, 31 Oct; was the top bar's): its menu the sites with Live packages and
+   the saved realtime recordings (the open one marked; a recording opens on its own page); Realtime
+   beside it, on / off, and while it is on, its setup page (the filming phone's code, the frame size,
+   Stop). */
+function menuItem(el, name, n, current, title, onclick) {
+  const b = document.createElement("button");
+  b.setAttribute("role", "menuitem");
+  b.innerHTML = `<span class="dot"></span><span class="t"></span><span class="n"></span>`;
+  b.querySelector(".t").textContent = name;
+  b.querySelector(".n").textContent = n;
+  b.setAttribute("aria-current", String(current));
+  b.title = title;
+  b.onclick = onclick;
+  el.appendChild(b);
+}
+
 function syncSites() {
   const el = $("#site-list");
   el.innerHTML = "";
-  const item = (name, n, current, title, onclick) => {
-    const b = document.createElement("button");
-    b.setAttribute("role", "menuitem");
-    b.innerHTML = `<span class="dot"></span><span class="t"></span><span class="n"></span>`;
-    b.querySelector(".t").textContent = name;
-    b.querySelector(".n").textContent = n;
-    b.setAttribute("aria-current", String(current));
-    b.title = title;
-    b.onclick = () => { toggleSiteMenu(false); onclick(); };
-    el.appendChild(b);
-  };
+  const item = (name, n, current, title, onclick) => menuItem(el, name, n, current, title, () => { togglePop("site", false); onclick(); });
   for (const e of sites)
     item(e.title, `${e.cameras} camera${e.cameras === 1 ? "" : "s"}`, !REALTIME && !!L && e.site === L.site,
          `${e.title}: starts on ${e.start_id}` + (e.rmse != null ? ` (the best calibrated, ${e.rmse} m)` : "") + ", or the one used last",
          // (from realtime: the site's own page, which turns the mode off)
-         () => { if (REALTIME) leaveRealtime(`/live?site=${enc(e.site)}`); else switchSite(e.site); });
-  el.appendChild(document.createElement("hr"));
+         () => { if (REALTIME) leaveTo(`/live?site=${enc(e.site)}`); else switchSite(e.site); });
+  const norm = (p) => String(p || "").replace(/\\/g, "/").toLowerCase(), recs = recordings.slice(0, 12);
+  if (recs.length) {
+    el.appendChild(document.createElement("hr"));
+    const h = document.createElement("h4");
+    h.textContent = "Recordings";
+    el.appendChild(h);
+  }
+  for (const r of recs) {
+    item(r.title, r.complete ? fmtS(r.seconds) : "saving…", !REALTIME && !!L && norm(L.startRun) === norm(r.run),
+         `${r.title}: filmed in Realtime` + (r.complete ? ` · ${fmtS(r.seconds)} · ${r.tracks} tracks` : " · still being saved"),
+         () => leaveTo(`/live?run=${enc(r.run)}&ground=C`));
+    if (!r.complete) el.lastChild.disabled = true;
+  }
+  $("#site-cur").textContent = REALTIME ? "Realtime" : L ? L.title : "Live";
+  $("#rt-setup-row").hidden = !REALTIME;
   // realtime (plans/live_controller/10): one phone films, this laptop tracks and draws it now
-  item("Realtime", "now", REALTIME, "One phone films, this laptop tracks it and draws it here as it comes; the other phones turn its camera",
-       () => { if (!REALTIME) location.href = "/live?realtime=1"; });
-  item("Recordings", "recorder", false, "The realtime page: the recorder's frame size (1080p / 720p) and the saved recordings",
-       () => { if (REALTIME) leaveRealtime("/live/realtime"); else location.href = "/live/realtime"; });
+  const rt = $("#rt-btn");
+  rt.setAttribute("aria-pressed", String(REALTIME));
+  rt.title = REALTIME ? "Realtime is on · off: back to the site used last (the pass drawn so far is saved first)"
+                      : "Realtime: one phone films, this laptop tracks it and draws it here as it comes; the other phones turn its camera";
   if (REALTIME) $("#clip-name").textContent = "Realtime";
-  else if (L) try { localStorage.setItem("motus-live-site", L.site); } catch {}   // the start menu's Live opens it
+  else if (L && sites.some((x) => x.site === L.site))           // the start menu's Live opens it (a site, not a recording)
+    try { localStorage.setItem("motus-live-site", L.site); } catch {}
 }
 
-function toggleSiteMenu(on) {
-  const m = $("#site-menu"), b = $("#site-btn"), open = on ?? m.hidden;
+/** The saved realtime recordings (newest first) for the site menu; it is rebuilt with them. */
+async function refreshRecordings() {
+  try { recordings = (await fetchOk("/api/live/realtime", "json")).recordings || []; } catch { return; }
+  const open = !$("#site-menu").hidden;
+  syncSites();
+  if (open) ($("#site-menu").querySelector('[aria-current="true"]') || $("#site-menu").querySelector("button")).focus({ preventScroll: true });
+}
+
+/** Realtime on (its page), or off: the site used last. */
+function toggleRealtime() {
+  if (!REALTIME) { location.href = "/live?realtime=1"; return; }
+  let last = null;
+  try { last = localStorage.getItem("motus-live-site"); } catch {}
+  const e = sites.find((x) => x.site === last) || sites[0];
+  leaveTo(e ? `/live?site=${enc(e.site)}` : "/live/realtime");
+}
+
+/* The popups (31 Oct): the site menu and + Camera's (under their buttons), the phones' (bottom
+   left). One open at a time; a click elsewhere or Esc closes it. */
+const POPS = { site: ["#site-menu", "#site-btn"], cam: ["#cam-menu", "#cam-add"], phones: ["#phone", "#phones-btn"] };
+const openPop = () => Object.keys(POPS).find((k) => !$(POPS[k][0]).hidden) || null;
+
+function togglePop(name, on) {
+  const m = $(POPS[name][0]), b = $(POPS[name][1]), open = on ?? m.hidden, was = openPop();
+  if (open && was && was !== name) togglePop(was, false);
+  if (open && name === "cam") syncCamMenu();
+  if (open && name === "site") refreshRecordings();
   m.hidden = !open;
   b.setAttribute("aria-expanded", String(open));
-  if (open) {
-    m.style.left = `${Math.max(8, b.getBoundingClientRect().left)}px`;
-    (m.querySelector('[aria-current="true"]') || m.querySelector("button")).focus({ preventScroll: true });
-  }
+  if (!open || name === "phones") return;
+  const r = b.getBoundingClientRect();
+  m.style.top = `${Math.round(r.bottom + 4)}px`;
+  m.style.left = `${Math.round(Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8)))}px`;
+  m.style.maxHeight = `${Math.max(160, Math.round(innerHeight - r.bottom - 16))}px`;
+  (m.querySelector('[aria-current="true"]') || m.querySelector("button:not(:disabled)") || m).focus({ preventScroll: true });
 }
 
-/* Away from realtime (another site's page, the recordings): the pass drawn so far saved first (a
-   recording still recording: with its points so far); a save that failed stays (its note says why). */
-async function leaveRealtime(url) {
+/** + Camera's menu: the site's cameras not in the scene (a large site: by area). */
+function syncCamMenu() {
+  const el = $("#cam-list");
+  el.innerHTML = "";
+  if (!L) return;
+  const free = L.cams.filter((c) => !spotOf(c.name) && !parkedOf(c.name) && !L.loading.has(c.name) && !L.ghosts.has(c.name));
+  if (!free.length) { el.innerHTML = `<p class="hint">Every camera of the site is in the scene.</p>`; return; }
+  const item = (c) => menuItem(el, c.name, "", false,
+    `${c.name}: ${c.clip}/${c.run_name}` + (c.rmse != null ? ` (calibrated to ${c.rmse} m)` : "") + " · into the scene as the mouse's camera",
+    () => { togglePop("cam", false); addCamera(c.name); });
+  const done = new Set();
+  for (const g of L.groups || []) {
+    const cs = free.filter((c) => g.spots.includes(c.name) && !done.has(c.name));
+    if (!cs.length) continue;
+    const h = document.createElement("h4");
+    h.textContent = g.name;
+    el.appendChild(h);
+    for (const c of cs) { done.add(c.name); item(c); }
+  }
+  const rest = free.filter((c) => !done.has(c.name));
+  if (rest.length && done.size) el.appendChild(document.createElement("hr"));
+  rest.forEach(item);
+}
+
+/* Away from this page (another site's page from realtime, a recording, the realtime setup): the pass
+   drawn so far saved first (a recording still recording: with its points so far); a save that failed
+   stays (its note says why). */
+async function leaveTo(url) {
   if (L && !R && P.cur && hasDrawing(P.cur)) {
     flash("Saving the pass first");
     if ((await passEnd("site")) === false) return;
@@ -2331,8 +2579,11 @@ function syncOutput() {
     }
   }
   if (q) pick.value = opKey(q);
-  const keys = layerKeys(), n = keys.size, nc = new Set([...keys].map((k) => k.slice(k.indexOf("|") + 1))).size;
-  $("#out-what").textContent = OUT.scope === "all" ? (n ? `Every layer in the view: ${n} on ${nc} camera${nc === 1 ? "" : "s"}` : "No layer in the view yet")
+  const all = [...layerKeys()].map((k) => k.slice(k.indexOf("|") + 1)), shown = all.filter((c) => !L.hiddenCams.has(c));
+  const n = shown.length, nc = new Set(shown).size, nh = new Set(all).size - nc;
+  $("#out-what").textContent = OUT.scope === "all"
+    ? (n ? `Every layer in the view: ${n} on ${nc} camera${nc === 1 ? "" : "s"}` + (nh ? ` (${nh} hidden camera${nh === 1 ? "" : "s"} left out)` : "")
+         : nh ? "Every camera with a layer is hidden" : "No layer in the view yet")
     : OUT.scope === "camera" ? (s ? `${s.name}'s layer` + (hasSheet(s) ? "" : ": none yet") : "No camera selected")
     : q ? `${(q.cameras || []).join(", ")}` + (q.recorded ? ` · ${fmtS(q.rec_s)}` : " · no recording") : "No saved pass yet";
   const op = q ? P.ops.get(opKey(q)) || {} : null;
@@ -2474,10 +2725,13 @@ function bindPanel() {
   $("#whole-scene").onclick = () => wholeScene();
   $("#cm-clear").onclick = () => { const s = selSpot(); if (s) clearCamera(s.name); };
   $("#cm-smooth").onchange = (e) => { const s = selSpot(); if (s) setSmooth(e.target.checked, s); else syncCamSel(); };
-  $("#site-btn").onclick = () => toggleSiteMenu();
-  document.addEventListener("pointerdown", (e) => {      // the site menu: a click elsewhere closes it
-    if (!$("#site-menu").hidden && !e.target.closest("#site-menu, #site-btn")) toggleSiteMenu(false);
+  for (const k of Object.keys(POPS)) $(POPS[k][1]).onclick = () => togglePop(k);
+  document.addEventListener("pointerdown", (e) => {      // a popup: a click elsewhere closes it
+    const o = openPop();
+    if (o && !e.target.closest(POPS[o].join(", "))) togglePop(o, false);
   });
+  $("#rt-btn").onclick = () => toggleRealtime();
+  $("#rt-setup").onclick = () => leaveTo("/live/realtime");
   bindFolds();
   let armed = 0;
   $("#cm-remove").onclick = () => {
@@ -2573,14 +2827,16 @@ function setSolo(s, notify = true) {
 
 const toggleSolo = (s) => setSolo(L && L.solo === s ? null : s);
 
-/** The main view's render with only the solo camera (the panels draw everything after). */
-const soloHidden = [];
-function soloHide(hide) {
-  if (!hide) { for (const o of soloHidden) o.visible = true; soloHidden.length = 0; return; }
-  if (!L || !L.solo) return;
-  const hideIt = (o) => { if (o.visible) { o.visible = false; soloHidden.push(o); } };
-  for (const s of [...L.spots, ...L.parked]) if (s !== L.solo) hideIt(s.group);
-  for (const it of past.items) if (it.cam !== L.solo.name) hideIt(it.obj);
+/** The main view's render without the cameras the eye hid, and with Solo on, with only the solo
+    camera (the panels draw everything after). */
+const viewHidden = [];
+function viewHide(hide) {
+  if (!hide) { for (const o of viewHidden) o.visible = true; viewHidden.length = 0; return; }
+  if (!L || (!L.solo && !L.hiddenCams.size)) return;
+  const out = (name) => (L.solo && name !== L.solo.name) || L.hiddenCams.has(name);
+  const hideIt = (o) => { if (o.visible) { o.visible = false; viewHidden.push(o); } };
+  for (const s of [...L.spots, ...L.parked]) if (out(s.name)) hideIt(s.group);
+  for (const it of past.items) if (out(it.cam)) hideIt(it.obj);
 }
 
 // ---------------------------------------------------------------------------- window, full screen
@@ -2620,16 +2876,19 @@ window.addEventListener("keydown", (e) => {
   const t = e.target;
   if (t && (t.tagName === "INPUT" && t.type !== "range" && t.type !== "checkbox" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
   if (e.ctrlKey || e.metaKey) return;
-  if (!$("#site-menu").hidden) {                   // the site menu: the arrows move, Esc closes it
-    const items = $$("#site-list button"), i = items.indexOf(document.activeElement);
-    if (e.key === "Escape") { toggleSiteMenu(false); $("#site-btn").focus(); e.preventDefault(); return; }
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
-      e.preventDefault();
-      return;
+  const pop = openPop();
+  if (pop) {                                       // a popup: Esc closes it; in a menu the arrows move
+    if (e.key === "Escape") { togglePop(pop, false); $(POPS[pop][1]).focus(); e.preventDefault(); return; }
+    if (pop !== "phones") {
+      const items = $$(`${POPS[pop][0]} button:not(:disabled)`), i = items.indexOf(document.activeElement), down = e.key === "ArrowDown";
+      if ((down || e.key === "ArrowUp") && items.length) {
+        items[i < 0 ? (down ? 0 : items.length - 1) : (i + (down ? 1 : items.length - 1)) % items.length].focus();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Enter" || e.key === " ") return;              // the item's own click
+      togglePop(pop, false);
     }
-    if (e.key === "Enter" || e.key === " ") return;              // the item's own click
-    toggleSiteMenu(false);
   }
   if (!L || !L.focus) return;
   const k = e.key, gain = L.focus.inp.gain;
@@ -2863,9 +3122,9 @@ function frame(now) {
     cvQuat(fs.inp.cam.R_wc, camera.quaternion);
   } else if (!L.locked && orbit.enabled) orbit.update();
   dashes(fs);
-  soloHide(true);
+  viewHide(true);
   renderer.render(scene3, camera);
-  soloHide(false);
+  viewHide(false);
   if (panels.entries.length) {
     const W = renderer.domElement.clientWidth, H = renderer.domElement.clientHeight;
     const open = !$("#panel").classList.contains("closed");
@@ -3174,6 +3433,7 @@ async function devPlayers(words) {
   mouse = new MouseController($("#stage"), onPose, { onDrag: () => {} });
   if (!SHEET && !REALTIME) postJson("/api/live/realtime", { action: "stop" }).catch(() => {});   // a site: realtime off
   try { sites = (await fetchOk("/api/live/sites", "json")).sites || []; } catch { sites = []; }
+  if (!SHEET) refreshRecordings();
   let run = params.get("run");
   if (!run && params.has("site")) {
     const e = sites.find((x) => x.site === params.get("site"));
@@ -3206,7 +3466,7 @@ async function devPlayers(words) {
   startHub();
   window.live = { get L() { return L; }, S, P, past, timeline, input, mouse, setView, setTrails, setGain, setScale, setSmooth, zero, bench,
                   get link() { return link; }, spacePress, spaceRelease, spaceLevel, toggleCause, cycleUnder, onControl, onPose,
-                  setFocus, setPlayers, panels, camera, orbit, undoPass, clearPasses, clearCamera, collageLayers, setSolo, setFramed, toggleBox, toggleBoxes, markCamera, removeCamera, selectCamera, loadPass, deletePass, switchSite, setStack,
+                  setFocus, setPlayers, panels, camera, orbit, undoPass, clearPasses, clearCamera, collageLayers, setSolo, setFramed, toggleBox, toggleBoxes, markCamera, removeCamera, selectCamera, addCamera, setLock, toggleHidden, cameraAt, loadPass, deletePass, switchSite, setStack,
                   refreshPasses, get sites() { return sites; }, startReplay, stopReplay, finishReplay, checkReplay, renderPass,
                   passExport, passSheet, sheetView, collageSheet, collageExport, get rec() { return rec; }, get R() { return R; }, RT, ready: true };
   if (SHEET) sheetPage();

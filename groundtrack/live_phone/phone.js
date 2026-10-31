@@ -445,6 +445,7 @@ function boot() {
   const groupList = () => Array.isArray(state.groups) ? state.groups : [];
   const ownSpot = () => typeof state.spot === "string" ? state.spot : null;
   const takenBy = s => typeof s.player === "number" && s.player !== player ? s.player : null;
+  const lockedOut = s => !!s.locked && s.player !== player;     // the laptop's padlock: nobody takes it
   const pick = {open: false, area: null, sig: ""};
   let asked, askedNote = false;                  // the camera last asked for (refused: say so)
   let siteName = null, hadSpots = false;         // the site last shown (only the laptop switches it)
@@ -479,7 +480,7 @@ function boot() {
     ui.spotbox.hidden = grouped;                 // a small site (or none): a plain list
     ui.cam.hidden = !grouped;
     if (!grouped) {
-      const sig = JSON.stringify([spots.map(s => [s.name, s.player]), player]);
+      const sig = JSON.stringify([spots.map(s => [s.name, s.player, !!s.locked]), player]);
       if (sig !== spotSig) {                     // rebuilt only when a holder changes
         spotSig = sig;
         const none = document.createElement("option");
@@ -488,8 +489,8 @@ function boot() {
         ui.spot.replaceChildren(none, ...spots.map(s => {
           const o = document.createElement("option"), by = takenBy(s);
           o.value = s.name;
-          o.textContent = by ? `${s.name} · player ${by}` : s.name;
-          o.disabled = !!by;                     // one phone per camera
+          o.textContent = by ? `${s.name} · player ${by}` : lockedOut(s) ? `${s.name} · locked` : s.name;
+          o.disabled = !!by || lockedOut(s);     // one phone per camera
           return o;
         }));
       }
@@ -497,7 +498,7 @@ function boot() {
       ui.spot.disabled = !multi;                 // no cameras: one clip, nothing to pick
     } else spotSig = "";
     if (grouped) {
-      const free = spots.filter(s => s.player == null).length;
+      const free = spots.filter(s => s.player == null && !s.locked).length;
       ui.camname.textContent = own || "pick a camera";
       ui.camarea.textContent = own ? areaOf(own) : `${free} free`;
       ui.camgo.textContent = own ? "change" : "";
@@ -511,8 +512,8 @@ function boot() {
       if (own === asked) {
         asked = undefined;
         if (askedNote) { askedNote = false; note(""); }
-      } else if (!s || takenBy(s)) {             // (a state still on its way is no answer)
-        note(`${asked} is taken: pick another camera.`);
+      } else if (!s || takenBy(s) || lockedOut(s)) {   // (a state still on its way is no answer)
+        note(`${asked} is ${s && lockedOut(s) ? "locked on the laptop" : "taken"}: pick another camera.`);
         askedNote = true;
         asked = undefined;
       }
@@ -554,7 +555,7 @@ function boot() {
     const byName = new Map(spots.map(s => [s.name, s]));
     const area = pick.area === null ? null : groups.find(g => g.name === pick.area) || null;
     if (!area) pick.area = null;
-    const sig = JSON.stringify([pick.area, own, player, groups, spots.map(s => [s.name, s.player])]);
+    const sig = JSON.stringify([pick.area, own, player, groups, spots.map(s => [s.name, s.player, !!s.locked])]);
     if (sig === pick.sig) return;                // unchanged: never rebuilt under a finger
     pick.sig = sig;
     ui.pback.hidden = !area;
@@ -563,7 +564,7 @@ function boot() {
     if (!area) {
       ui.plist.replaceChildren(...groups.map(g => {
         const names = g.spots.filter(n => byName.has(n));
-        const taken = names.filter(n => takenBy(byName.get(n))).length, mine = names.includes(own);
+        const taken = names.filter(n => takenBy(byName.get(n)) || lockedOut(byName.get(n))).length, mine = names.includes(own);
         const meta = (mine ? "yours · " : "") + `${names.length} camera${names.length === 1 ? "" : "s"}`
           + (taken ? ` · ${taken} taken` : "");
         return item(g.name, meta, {mine, full: taken === names.length},
@@ -571,8 +572,8 @@ function boot() {
       }));
     } else {
       ui.plist.replaceChildren(...area.spots.filter(n => byName.has(n)).map(n => {
-        const by = takenBy(byName.get(n)), mine = n === own;
-        return item(n, mine ? "yours" : by ? `player ${by}` : "free", {mine, taken: !!by},
+        const by = takenBy(byName.get(n)), mine = n === own, locked = lockedOut(byName.get(n));
+        return item(n, mine ? "yours" : by ? `player ${by}` : locked ? "locked" : "free", {mine, taken: !!by || locked},
                     () => { if (!mine) claim(n); closePicker(); });
       }));
     }

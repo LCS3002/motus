@@ -126,25 +126,42 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 9px; 
   linear-gradient(var(--violet-line), var(--violet-line)) 0 0 / 9px 9px no-repeat, linear-gradient(var(--violet-line), var(--violet-line)) 4px 0 / 1px 100% no-repeat; }
 
 /* phone: the QR on white (it must scan), the code, how many are connected */
-.qr { width: 132px; height: 132px; background: #fff; }
+.qr { width: 160px; height: 160px; background: #fff; }
 .qr svg { display: block; width: 100%; height: 100%; }
 .qr:empty { background: none; border: 1px dotted var(--guide); }
 .phone-url { color: var(--fg-2); overflow-wrap: anywhere; }
 .phones.on { color: var(--violet-line); }
 
-/* spots: a button each (its tint, its name, who holds it); the focus spot marked */
-.spot-list { display: grid; gap: 4px; }
-.spot { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; min-width: 0; gap: 9px; align-items: center; height: 26px; padding: 0 8px;
-        border: 1px solid var(--line); background: none; text-align: left; color: var(--fg-2); }
-.spot:hover { background: var(--hover); color: var(--fg); }
-.spot[aria-pressed="true"] { border-color: var(--tint); color: var(--fg); }
+/* the layers (31 Oct): a row per camera in the scene, in the site's order: its eye (shown / hidden),
+   its tint, name and who moves it, its padlock. The selected row lit, the marked camera's tint
+   thick, a frozen one's dashed, a hidden one faint */
+.spot-list { display: grid; border: 1px solid var(--line); }
+.spot-list:empty { display: none; }
+.layer { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; min-height: 30px; }
+.layer + .layer { border-top: 1px solid var(--rule-soft); }
+.layer.selected { background: var(--press); }
+.lyr-eye, .lyr-lock { border: 0; background: none; padding: 0; display: grid; place-items: center; color: var(--fg-2); }
+.lyr-eye:hover:not(:disabled), .lyr-lock:hover:not(:disabled) { color: var(--fg); background: var(--hover); }
+.lyr-eye:disabled, .lyr-lock:disabled { opacity: 0.3; cursor: default; }
+.lyr-eye svg, .lyr-lock svg { width: 14px; height: 14px; }
+.lyr-eye .off, .lyr-eye[aria-pressed="false"] .on, .lyr-lock .shut, .lyr-lock[aria-pressed="true"] .open { display: none; }
+.lyr-eye[aria-pressed="false"] .off, .lyr-lock[aria-pressed="true"] .shut { display: inline; }
+.lyr-eye[aria-pressed="false"], .lyr-lock { color: var(--faint); }
+.lyr-lock[aria-pressed="true"] { color: var(--fg); }
+.layer.off .spot { opacity: 0.45; }
+.layer.parked .spot .sw { background: repeating-linear-gradient(90deg, var(--tint) 0 3px, transparent 3px 5px); }
+.layer-bar { gap: 4px; }
+.spot { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; min-width: 0; gap: 9px; align-items: center; padding: 0 6px;
+        border: 0; background: none; text-align: left; color: var(--fg-2); }
+.spot:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+.spot[aria-pressed="true"] { color: var(--fg); }
 .spot .sw { width: 10px; height: 1px; background: var(--tint); }
 .spot[aria-pressed="true"] .sw { height: 3px; }
 .spot .who { color: var(--muted); }
 .spot .nm { font: var(--t-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spot .who { white-space: nowrap; }
 .spot:disabled { cursor: default; opacity: 0.55; }
-/* the panel's parts (30 Oct): Players, Cameras, Drawing, Output, Display (folded), Help (folded) */
+/* the panel's parts (31 Oct): Site, Layers, Drawing, Output, Display (folded), Help (folded) */
 .part-h { margin: 0; padding: 14px var(--margin) 4px; color: var(--fg); display: flex; align-items: center; gap: 8px; }
 .part + .part { border-top: 1px solid var(--line); }
 .fold > .part-h { padding: 0; }
@@ -155,23 +172,17 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 9px; 
 .fold-h[aria-expanded="true"] svg { transform: rotate(90deg); }
 .fold-body > section:first-child, section.fold-body { padding-top: 2px; }
 .panel .hint b { font-weight: 500; color: var(--fg-2); }
-/* who holds which camera: a line per player, the mouse's camera */
+/* who holds which camera (the phones' popup): a line per player */
 .holders { display: grid; gap: 2px; font: var(--t-mono); color: var(--fg-2); }
 .holders:empty { display: none; }
 .holders span { display: flex; gap: 8px; }
 .holders i { font-style: normal; color: var(--tint, var(--violet-line)); }
-.mouse-cam { color: var(--fg-2); text-transform: none; letter-spacing: 0; font: var(--t-mono); }
-/* a camera's row; a frozen one (out of play, its layer kept) dashed */
-.spot-row { display: grid; grid-template-columns: minmax(0, 1fr); }
 /* the selected camera, under the list */
 .panel .csel { gap: 8px; }
 .panel .csel #cm-name { color: var(--fg); }
 .cm-mouse { display: grid; gap: 9px; }
 .cm-mouse[hidden], .csel[hidden] { display: none; }
 .csel .check:has(input:disabled) { opacity: 0.45; cursor: default; }
-.spot.parked { border-style: dashed; }
-.spot.parked .sw { opacity: 0.6; }
-.spot.selected { background: var(--press); color: var(--fg); }
 /* output: what (collage, the selected camera, a saved pass), then the formats */
 .out-do { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .out-do .btn { min-width: 0; padding: 0 4px; }
@@ -180,17 +191,21 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 9px; 
 #scene-out.flash { animation: out-flash 900ms var(--ease); }
 @keyframes out-flash { from { background: rgb(155 130 217 / 0.18); } to { background: transparent; } }
 
-/* ---------- the top bar's site (its menu: the sites, Realtime, the recordings) and Whole scene */
-.site-btn { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px; margin-left: -8px; border: 1px solid transparent;
-            background: none; color: var(--fg); min-width: 0; }
-.site-btn:hover, .site-btn[aria-expanded="true"] { border-color: var(--line); background: var(--hover); }
+/* ---------- the panel's site (its menu: the sites, the recordings) and Realtime; the top bar's Whole scene */
+.site-sel .row { gap: 4px; }
+.site-btn { flex: 1; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 1px solid var(--line);
+            background: none; color: var(--fg); min-width: 0; font: var(--t-body); text-align: left; }
+.site-btn .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.site-btn:hover, .site-btn[aria-expanded="true"] { border-color: rgb(255 255 255 / 0.45); background: var(--hover); }
 .site-btn svg { width: 10px; height: 10px; flex: none; color: var(--muted); }
+.rt-btn { height: 30px; }
+.rt-btn[aria-pressed="true"] { border-color: var(--violet-line); color: var(--violet-line); }
 .bar-btn { border: 0; background: none; padding: 4px 0; font: var(--t-label); letter-spacing: var(--tracking-label); text-transform: uppercase;
            color: var(--muted); white-space: nowrap; display: flex; align-items: center; gap: 6px; flex: none; }
 .bar-btn:hover { color: var(--fg); }
 .bar .key { font: var(--t-label); color: var(--faint); border: 1px solid var(--rule-soft); padding: 0 4px; }
 .smenu { position: fixed; top: calc(var(--bar-h) - 4px); left: 64px; z-index: 12; min-width: 260px; max-width: calc(100vw - 24px);
-         max-height: calc(100vh - var(--bar-h) - 24px); overflow-y: auto; padding: 6px; background: rgb(0 0 0 / 0.92); border: 1px solid var(--line); }
+         max-height: calc(100vh - var(--bar-h) - 24px); overflow-y: auto; padding: 6px; background: rgb(0 0 0 / 0.97); border: 1px solid var(--line); }
 .smenu[hidden] { display: none; }
 .site-list { display: grid; gap: 2px; }
 .site-list button { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 9px; align-items: center; height: 30px; padding: 0 10px;
@@ -201,6 +216,24 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 9px; 
 .site-list button .dot { width: 5px; height: 5px; background: currentColor; opacity: 0; }
 .site-list button[aria-current="true"] .dot { opacity: 1; }
 .site-list hr { border: 0; border-top: 1px solid var(--rule-soft); margin: 4px 0; }
+.site-list h4 { margin: 6px 10px 2px; font: var(--t-label); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--muted); }
+.site-list button:disabled { opacity: 0.4; cursor: default; }
+#cam-menu { min-width: 236px; }
+
+/* ---------- the phones (bottom left, over the stage): the button, its popup with the QR code */
+.phones-btn { position: fixed; left: var(--margin); bottom: 56px; z-index: 9; display: flex; align-items: center; gap: 8px; height: 30px;
+              padding: 0 10px; border: 1px solid var(--line); background: rgb(0 0 0 / 0.72); color: var(--fg-2);
+              transition: bottom var(--t) var(--ease); }
+.phones-btn:hover, .phones-btn[aria-expanded="true"] { color: var(--fg); border-color: rgb(255 255 255 / 0.45); }
+.phones-btn svg { width: 14px; height: 14px; }
+.phones-btn .num { font: var(--t-mono); color: var(--muted); }
+.phones-btn.on .num { color: var(--violet-line); }
+.phone-pop { position: fixed; left: var(--margin); bottom: 94px; z-index: 11; width: 236px; display: grid; gap: 9px;
+             padding: 12px var(--margin) 14px; background: rgb(0 0 0 / 0.92); border: 1px solid var(--line);
+             transition: bottom var(--t) var(--ease); }
+.phone-pop h3 { margin: 0; color: var(--muted); }
+.timeline.hidden ~ .phones-btn { bottom: 12px; }
+.timeline.hidden ~ .phone-pop { bottom: 50px; }
 
 /* passes: the saved ones, newest first (load / delete) */
 .pass-n { color: var(--muted); }
@@ -215,7 +248,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 9px; 
 .pmenu .key { font: var(--t-label); color: var(--faint); border: 1px solid var(--rule-soft); padding: 0 4px; }
 .pmenu .pass-list { max-height: none; min-height: 0; }
 #pass-menu-btn .key { margin-left: 4px; }
-.spot.solo .who { color: var(--fg); }
+.spot.solo .who, .layer.locked .who { color: var(--fg); }
 .pass { display: grid; grid-template-columns: 1fr auto auto; gap: 4px; align-items: center; }
 .pass .pl { font: var(--t-mono); color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pass .btn { height: 22px; padding: 0 7px; }

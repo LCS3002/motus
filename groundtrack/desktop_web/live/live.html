@@ -28,8 +28,7 @@
 <header class="bar" id="bar">
   <button class="btn sm back" id="back" title="Back to the run">← Run</button>
   <svg class="logo" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="16" cy="19" r="8"/><path d="M3 6.5h26"/></svg>
-  <button class="site-btn" id="site-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="site-menu"
-          title="The site: another site, Realtime, the recordings (only the laptop switches: the pass is saved, the phones pick again)"><span class="clip" id="clip-name">Live</span><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1"/></svg></button>
+  <span class="clip" id="clip-name">Live</span>
   <span class="sub" id="clip-sub"></span>
   <div class="grow"></div>
   <div class="seg" id="views" role="tablist" aria-label="Views">
@@ -65,38 +64,39 @@
 <section class="smenu" id="site-menu" hidden role="menu" aria-label="Sites">
   <div class="site-list" id="site-list"></div>
 </section>
+<section class="smenu" id="cam-menu" hidden role="menu" aria-label="The site's cameras">
+  <div class="site-list" id="cam-list"></div>
+</section>
 
 <aside class="panel" id="panel" aria-label="Live controls">
-  <!-- 30 Oct, the panel's parts: who plays (Players), what they play (Cameras), what is drawn
-       (Drawing), what comes out (Output), how it looks (Display, folded); the site in the top bar -->
-  <div class="part" id="part-players">
-  <h2 class="part-h label">Players</h2>
-  <section class="phone" id="phone">
-    <h3 class="label">Phones</h3>
-    <div class="qr" id="qr"></div>
-    <div class="phone-url mono" id="phone-url"></div>
-    <div class="row"><span class="phones label" id="phones">Starting…</span><div class="grow"></div>
-      <button class="btn sm" id="new-code" title="A new pairing code: phones must scan again">New code</button></div>
-    <div class="holders" id="holders" aria-label="Who holds which camera"></div>
-    <p class="hint" id="phone-note"></p>
-  </section>
-  <section id="mouse">
-    <h3 class="label">Mouse <span class="mouse-cam" id="mouse-cam"></span></h3>
-    <div class="cm-mouse" id="cm-mouse">
-    <div class="row"><button class="btn sm" id="zero" title="The current pose becomes the start camera (Z)">Zero <span class="key">Z</span></button></div>
-    <label class="slider" title="How far the camera turns for a turn of the hand: 2× turns it twice as far (G / Shift+G: a step up / down)"><span class="label">Gain <span class="key">G</span></span><input type="range" id="gain" min="0.1" max="3" step="0.05" value="1"><output id="gain-v" class="num">1.00×</output></label>
-    <label class="slider" title="How far the camera moves for a step of the hand: 1 m of the phone or mouse = this many metres on the site"><span class="label">Scale</span><input type="range" id="scale" min="0" max="5" step="1" value="0"><output id="scale-v" class="num">1 m = 1 m</output></label>
-    <p class="hint">Right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move · hold M: turn the space · M M: level</p>
+  <!-- 31 Oct, the panel's parts: the site (and Realtime), the cameras as layers (each one's eye,
+       padlock and properties; + Camera), what is drawn (Drawing), what comes out (Output), how it
+       looks (Display, folded); the phones in a popup bottom left -->
+  <div class="part" id="part-site">
+  <h2 class="part-h label">Site</h2>
+  <section class="site-sel">
+    <div class="row">
+      <button class="site-btn" id="site-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="site-menu"
+              title="Another site, or a saved recording (only the laptop switches: the pass is saved, the phones pick again)"><span class="nm" id="site-cur">Live</span><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button class="btn sm rt-btn" id="rt-btn" aria-pressed="false" title="Realtime: one phone films, this laptop tracks it and draws it here as it comes; the other phones turn its camera">Realtime</button>
     </div>
-    <p class="hint" id="cm-phone" hidden></p>
+    <div class="row" id="rt-setup-row" hidden>
+      <button class="btn sm" id="rt-setup" title="Realtime's setup page: the filming phone's QR code, the frame size (1080p / 720p), Stop the recording">Realtime setup</button>
+      <p class="hint">the filming phone's code, 1080p / 720p, Stop</p>
+    </div>
   </section>
   </div>
-  <div class="part" id="part-cameras">
-  <h2 class="part-h label">Cameras <span class="key">Tab</span></h2>
+  <div class="part" id="part-layers">
+  <h2 class="part-h label">Layers <span class="key">Tab</span></h2>
   <section id="spots">
-    <div class="spot-list" id="spot-list"></div>
+    <div class="spot-list" id="spot-list" aria-label="The cameras in the scene"></div>
+    <div class="row layer-bar">
+      <button class="btn sm" id="cam-add" aria-haspopup="menu" aria-expanded="false" aria-controls="cam-menu"
+              title="Another of the site's cameras into the scene, as the mouse's camera (no phone needed); the cameras before keep running">+ Camera</button>
+      <div class="grow"></div>
+      <button class="btn sm" id="cm-remove" title="The selected camera out of the scene with its layer; a phone holding it picks again · Undo brings it back (click twice)">Remove</button>
+    </div>
     <p class="hint" id="spot-sum"></p>
-    <p class="hint">Click: select and mark it (the mouse and the keys act on it) · Shift+click: select and focus. A phone picks its own camera; a camera stays until removed.</p>
   </section>
   <section class="csel" id="cam-sel" aria-label="The selected camera">
     <h3 class="label" id="cm-name"></h3>
@@ -106,10 +106,14 @@
       <button id="cm-video" title="Its video box (its phone's view, in the column on the right) open / closed; B: the boxes of every camera in play">Video <span class="key">B</span></button>
     </div>
     <label class="check" title="Its movement from the phone eased: calm, no jitter, about 0.1 s behind (J: the marked camera). Off: it follows the phone exactly. Recorded with the pass"><input type="checkbox" id="cm-smooth"> Smooth <span class="key">J</span></label>
-    <div class="opts cm-do">
-      <button id="cm-clear" title="Its layer off the view (X: the marked camera) · Undo brings it back">Clear layer <span class="key">X</span></button>
-      <button id="cm-remove" title="Out of the scene with its layer; a phone holding it picks again · Undo brings it back">Remove</button>
+    <div class="cm-mouse" id="cm-mouse">
+    <div class="row"><button class="btn sm" id="zero" title="The current pose becomes the start camera (Z)">Zero <span class="key">Z</span></button></div>
+    <label class="slider" title="How far the camera turns for a turn of the hand: 2× turns it twice as far (G / Shift+G: a step up / down)"><span class="label">Gain <span class="key">G</span></span><input type="range" id="gain" min="0.1" max="3" step="0.05" value="1"><output id="gain-v" class="num">1.00×</output></label>
+    <label class="slider" title="How far the camera moves for a step of the hand: 1 m of the phone or mouse = this many metres on the site"><span class="label">Scale</span><input type="range" id="scale" min="0" max="5" step="1" value="0"><output id="scale-v" class="num">1 m = 1 m</output></label>
+    <p class="hint">Right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move · hold M: turn the space · M M: level</p>
     </div>
+    <p class="hint" id="cm-phone" hidden></p>
+    <div class="row"><button class="btn sm" id="cm-clear" title="Its layer off the view (X: the marked camera) · Undo brings it back">Clear layer <span class="key">X</span></button></div>
   </section>
   </div>
   <div class="part" id="part-drawing">
@@ -206,6 +210,7 @@
     <p class="hint">Space play · ← → a frame (Shift: 10) · Tab the next camera · O focus · W whole scene · I solo · B video boxes · X clear its layer · Z zero · G / Shift+G gain · J smooth · M hold: turn the space (M M: level) · K stack · L saved passes · S section · C cause · U below the ground · V video · 1–4 views · H HUD · P panel · F full screen</p>
     <p class="hint">Mouse: right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move</p>
     <p class="hint">A play is drawn, saved as a pass, and leaves a layer on each camera it drew; the layers together are the collage.</p>
+    <p class="hint">Layers: every camera in the scene runs at once (one nobody moves holds its pose and draws) · click a camera (or Shift+click it in the 3D view) to move it with the mouse · Shift+click its row: focus · the eye hides it in the view (and the collage's output) · the padlock locks it (freezes it): nobody moves it, and Clear, Remove, Undo and Load leave its layer.</p>
   </section>
   </div>
 </aside>
@@ -217,6 +222,18 @@
 </section>
 
 <footer class="timeline" id="timeline"></footer>
+<!-- the phones (31 Oct; was the panel's Players): a button bottom left, its popup the QR code -->
+<button class="phones-btn" id="phones-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="phone"
+        title="Phones: the QR code a phone scans to join, who holds which camera, a new code"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true"><rect x="4.5" y="1.5" width="7" height="13" rx="1"/><path d="M7 12.5h2"/></svg><span class="label">Phones</span><span class="num" id="phones-n">0</span></button>
+<section class="phone-pop" id="phone" hidden aria-label="Phones">
+  <div class="row"><h3 class="label">Phones</h3><div class="grow"></div><span class="phones label" id="phones">Starting…</span></div>
+  <div class="qr" id="qr"></div>
+  <div class="phone-url mono" id="phone-url"></div>
+  <p class="hint">A phone scans it and picks a camera (the first one gets the start camera).</p>
+  <div class="holders" id="holders" aria-label="Who holds which camera"></div>
+  <p class="hint" id="phone-note"></p>
+  <div class="row"><div class="grow"></div><button class="btn sm" id="new-code" title="A new pairing code: phones must scan again">New code</button></div>
+</section>
 <video id="video" muted playsinline preload="auto"></video>
 <div class="loading" id="loading"><span class="label">Loading</span><span class="mono" id="loading-what"></span></div>
 

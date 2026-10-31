@@ -190,6 +190,7 @@ class CameraLines {
     for (let i = 0; i < fp.length; i += 3) fp[i + 2] = groundHeight(sc, fp[i], fp[i + 1]);
     const corners = imageCorners(sc, this.depth).map((p) => toWorld(cam, p));
     const C = cam.C;
+    this.C = [C[0], C[1], C[2]];                     // (with corners: Live's Shift+click picks the camera)
     let k = 0;
     for (let i = 0; i < 4; i++) {
       const gi = 3 * i * FP_N, q = corners[i], q2 = corners[(i + 1) % 4];
