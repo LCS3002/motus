@@ -1154,6 +1154,50 @@ def test_phone_orientation_to_camera_quaternion_in_node():
     assert out["tr"][1] == pytest.approx([0, 0], abs=1e-9)
 
 
+def test_the_hold_comes_from_gravity_not_the_screen_lock():
+    """30 Oct: an iPhone filming sideways with its rotation lock on reported screen angle 0, so its
+    camera came out rolled 90 deg. holdAngle takes the angle from gravity: the hand-worked holds
+    give their own angle, the locked iPhone gives 90 (level again), a phone near flat keeps the
+    last one, a hold kept to landscape picks the side that puts the picture's up up, and an open
+    hold changes only past the switch (no flapping at 45 deg)."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    rng = np.random.default_rng(7)
+    rand = [(float(a), float(b), float(g)) for a, b, g in
+            zip(rng.uniform(0, 360, 60), rng.uniform(-180, 180, 60), rng.uniform(-90, 90, 60))]
+    hand = [c for name, c, _ in HAND if not name.startswith("flat")]
+    src = (live_hub.PHONE_WEB / "phone.js").as_uri()
+    code = (f'import {{holdAngle, cameraQuaternion, tiltRoll}} from "{src}";\n'
+            f"const hand = {json.dumps(hand)}, rand = {json.dumps(rand)};\n"
+            "console.log(JSON.stringify({\n"
+            "  hand: hand.map(c => [holdAngle(c[0], c[1], c[2]), holdAngle(c[0], c[1], c[2], true, 0)]),\n"
+            "  locked: [0, 90].map(a => tiltRoll(cameraQuaternion(90, 0, -60, a))),\n"
+            "  held: holdAngle(90, 0, -60, true, 0),\n"
+            "  flat: [holdAngle(0, 0, 0, null, 270), holdAngle(0, 5, 10, true, 90)],\n"
+            "  rand: rand.map(c => [holdAngle(c[0], c[1], c[2], true, 90), holdAngle(c[0], c[1], c[2], false, 0)]),\n"
+            "  diag: [[45, 90], [50, 90], [65, 90], [45, 0]].map(([r, p]) => holdAngle(90, r, -90, null, p)),\n"
+            "}));")
+    r = subprocess.run([node, "--input-type=module", "-e", code], capture_output=True,
+                       encoding="utf-8", timeout=60, check=False)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    for c, (free, land) in zip(hand, out["hand"]):
+        assert free == land == c[3] % 360, c                   # the angle the hand-worked hold has
+    (tilt0, roll0), (tilt90, roll90) = out["locked"]           # tilted 30 deg down, lock on: 0
+    assert abs(roll0) == pytest.approx(90, abs=1e-6) and roll90 == pytest.approx(0, abs=1e-6)
+    assert tilt0 == pytest.approx(-30) and tilt90 == pytest.approx(-30) and out["held"] == 90
+    assert out["flat"] == [270, 90]                             # near flat: the last one kept
+    for c, (land, port) in zip(rand, out["rand"]):
+        down = {a: _cam(*c, a)[2, 1] for a in (0, 90, 180, 270)}   # the picture's down, its z
+        if np.hypot(*_cam(*c, 0)[2, :2]) < 0.35:
+            continue                                             # near flat: no clear hold
+        assert down[land] == min(down[90], down[270]) and down[port] == min(down[0], down[180]), c
+    d = out["diag"]                                             # landscape rolled 45, 50, 65 deg
+    assert d[:2] == [90, 90] and d[2] in (0, 180)               # it changes past the switch only
+    assert d[3] in (0, 180)                                     # at 45 deg each hold keeps itself
+
+
 def test_phone_gain_runs_0_1_to_3_and_its_ticks_sit_on_their_values():
     node = shutil.which("node")
     if node is None:

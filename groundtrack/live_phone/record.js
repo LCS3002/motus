@@ -93,9 +93,13 @@ function boot() {
   async function begin() {
     window.dispatchEvent(new CustomEvent("motus:record"));     // phone.js lets go of its player
     phone = await import(new URL(`phone.js${new URL(import.meta.url).search}`, import.meta.url));
+    let held = phone.screenAngle();
     window.addEventListener("deviceorientation", e => {
       if (e.alpha == null || e.beta == null || e.gamma == null) return;
-      let q = phone.cameraQuaternion(e.alpha, e.beta, e.gamma, phone.screenAngle());
+      // the angle the phone is held at, kept to the frames' shape (with the rotation lock on,
+      // screen.orientation stays upright while the phone films sideways: 30 Oct)
+      held = phone.holdAngle(e.alpha, e.beta, e.gamma, camSize ? camSize[0] > camSize[1] : null, held);
+      let q = phone.cameraQuaternion(e.alpha, e.beta, e.gamma, held);
       if (lastQ && q[0] * lastQ[0] + q[1] * lastQ[1] + q[2] * lastQ[2] + q[3] * lastQ[3] < 0)
         q = q.map(v => -v);
       lastQ = q;

@@ -60,6 +60,29 @@ export function screenAngle() {
   return ((a % 360) + 360) % 360;
 }
 
+const FLAT = 0.35;         // the world's up this little in the screen's plane: near flat, no clear hold
+const SWITCH = 1.5;        // a hold changes (landscape <-> portrait) once the other way dominates by this
+
+/**
+ * The screen angle the phone is held at, from gravity: the one that puts the picture's up nearest
+ * the world's up. screen.orientation says how the page is shown, which is not how the phone is
+ * held when its rotation lock is on (30 Oct: an iPhone filming sideways reported 0, so its camera
+ * came out rolled 90 deg; a phone that steers would swap pan and tilt). landscape: true / false
+ * keeps to that hold's two angles (the recorder's frames have one shape), null: either, changing
+ * only past SWITCH. Near flat: prev.
+ */
+export function holdAngle(alpha, beta, gamma, landscape = null, prev = 0) {
+  const [cx, cy] = axes(qmul(qmul(about(2, alpha), about(0, beta)), about(1, gamma)));
+  const ux = cx[2], uy = cy[2];                      // the world's up along the phone's x, y
+  if (Math.hypot(ux, uy) < FLAT) return prev;
+  let side = landscape;
+  if (side == null) {
+    const ax = Math.abs(ux), ay = Math.abs(uy);
+    side = prev === 90 || prev === 270 ? !(ay > SWITCH * ax) : ax > SWITCH * ay;
+  }
+  return side ? (ux >= 0 ? 90 : 270) : (uy >= 0 ? 0 : 180);
+}
+
 // gain slider 0..1000 on a log scale, 0.1-3x (1x about two thirds along)
 const G0 = Math.log(0.1), G1 = Math.log(3);
 export const gainOf = s => Math.exp(G0 + (G1 - G0) * s / 1000);
@@ -146,10 +169,12 @@ function boot() {
   window.addEventListener("blur", () => letGoSpace());
 
   // ---- orientation -> pose, at most 60 Hz
+  let held = null;                                         // the screen angle held at (holdAngle)
   function onOrient(e) {
     if (e.alpha == null || e.beta == null || e.gamma == null) return;
     if (!gotMotion) { gotMotion = true; note(""); }
-    let q = cameraQuaternion(e.alpha, e.beta, e.gamma, screenAngle());
+    held = holdAngle(e.alpha, e.beta, e.gamma, null, held ?? screenAngle());
+    let q = cameraQuaternion(e.alpha, e.beta, e.gamma, held);
     if (lastQ && q[0] * lastQ[0] + q[1] * lastQ[1] + q[2] * lastQ[2] + q[3] * lastQ[3] < 0)
       q = q.map(v => -v);                      // same hemisphere as the last one: no sign flips
     lastQ = q;
