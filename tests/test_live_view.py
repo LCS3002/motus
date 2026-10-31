@@ -942,7 +942,9 @@ def test_layers_eye_padlock_and_add_camera():
     all of the camera related stuff" and "lock them there like a photoshop layer". A row per camera
     in the site's order: its eye (hidden in the main view, left out of the collage's output), its
     padlock (nobody moves it; Clear, Clear all, Remove, Undo and Load leave its layer; the phones see
-    it locked, the hub refuses it); + Camera brings any of the site's cameras in as the mouse's."""
+    it locked, the hub refuses it); + Camera brings any of the site's cameras in as the mouse's. The
+    padlock is the one way a camera stops: the cameras a Load, an Undo or a replay brings back come
+    in locked."""
     from groundtrack import live_passes as lp
     js = (LIVE / "live.js").read_text(encoding="utf-8")
     ss = js.split("function syncSpots()")[1].split("\n}\n")[0]
@@ -960,10 +962,19 @@ def test_layers_eye_padlock_and_add_camera():
         assert "isLocked(" in js.split(fn)[1].split("\n}\n")[0], fn
     assert "lockedBy(st)" in js.split("function undoPass()")[1].split("\n}\n")[0]
     assert "kept = past.items.filter((it) => isLocked(it.cam))" in js.split("function clearPasses()")[1].split("\n}\n")[0]
-    assert "if (locked.includes(g.c.name)) continue;" in js and "if (isLocked(name)) continue;" in js   # Load, a replay's end
+    assert "if (locked.includes(g.c.name)) continue;" in js and "if (lockedHere(name)) continue;" in js   # Load, a replay's end
+    # one way a camera stops (31 Oct, the user: no "frozen" beside the padlock): one a Load, an Undo
+    # or a replay's end leaves out of play comes in locked; that lock gives way to Undo and Load (theirs),
+    # Clear and Remove keep to it; unlocked, any camera is in play
+    pk = js.split("function park(s)")[1].split("\n}\n")[0]
+    assert "if (!isLocked(s.name)) { L.lockedCams.add(s.name); L.autoLocked.add(s.name); }" in pk
+    assert "const lockedHere = (name) => isLocked(name) && !L.autoLocked.has(name);" in js
+    assert "return names.find(lockedHere) || null;" in js and "got.filter((g) => lockedHere(g.c.name))" in js
+    assert '"frozen"' not in js and "Frozen" not in js and "freezes it" not in (LIVE / "live.html").read_text(encoding="utf-8")
     sl = js.split("function setLock(name, on)")[1].split("\n}\n")[0]
     assert 'link.sendMessage({ type: "release", spot: name })' in sl and "One camera stays unlocked" in sl
     assert 'rec.event("lock"' in sl and "lock" in lp.EVENTS and "camera_add" in lp.EVENTS
+    assert "L.autoLocked.delete(name);\n    L.inPlay.add(name);" in sl and "L.lockedCams.add(name);\n    L.autoLocked.delete(name);" in sl
     assert "if (isLocked(c.name)) o.locked = true;" in js                                     # to the hub, the phones
     phone = (LIVE.parents[1] / "live_phone" / "phone.js").read_text(encoding="utf-8")
     assert "o.disabled = !!by || lockedOut(s);" in phone and '"locked on the laptop"' in phone
@@ -973,8 +984,11 @@ def test_layers_eye_padlock_and_add_camera():
     cm = js.split("function syncCamMenu()")[1].split("\n}\n")[0]
     assert "addCamera(c.name)" in cm and "L.groups" in cm
     assert all(f in js.split("window.live = ")[1] for f in ("addCamera", "setLock", "toggleHidden", "cameraAt"))
-    # Shift+click a camera in the 3D view: as a click on its row (a drag is the orbit's)
-    assert "const s = cameraAt(e.clientX, e.clientY);\n  if (s) markCamera(s);" in js
+    # Shift+click a camera in the 3D view: as a click on its row; twice: Focus (a drag is the orbit's);
+    # inside its frustum or picture counts (31 Oct: the lines alone were too thin to hit)
+    assert "if (twice) { toggleFocus(s); selectCamera(s.name); } else markCamera(s);" in js
+    assert "performance.now() - pickAt.t < PICK_MS" in js and "function inTri(" in js
+    assert "tris.some(([a, b, d]) => inTri(x, y, a, b, d))" in js
     assert "this.C = [C[0], C[1], C[2]];" in (LIVE / "scene.js").read_text(encoding="utf-8")
 
 

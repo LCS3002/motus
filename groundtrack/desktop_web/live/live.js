@@ -9,8 +9,9 @@
    laptop only).
    Cameras vs Scene (29 Oct): a camera is in play while a phone holds it or while it is the mouse's
    (the marked camera no phone holds; when the last phone lets go, its camera). A camera out of play
-   stays in the scene, frozen where it was with its layer (L.parked: its video and panel go), until
-   Remove camera (its menu; a phone holding it is released, back to its picker). A phone that picks
+   stays in the scene, locked where it was with its layer (L.parked: its video and panel go; 31 Oct:
+   was frozen; now the padlock is the one way a camera stops), until Remove camera (a phone holding
+   it is released, back to its picker). A phone that picks
    a camera in the scene takes it over. The panel: Cameras (the list, each camera's menu) and Scene
    (site, passes, sheet and exports, the look, help).
    Focus (29 Oct (4); O, or Shift+click a camera in the list or on its panel, or its menu; the same
@@ -388,7 +389,7 @@ function addSpot(cam, start = false) {
 }
 
 /* A camera leaves play (the start camera too; never the last one): what it drew in the current
-   play stays in it (its layer); the camera stays in the scene, frozen where it was (parked: its
+   play stays in it (its layer); the camera stays in the scene, locked where it was (parked: its
    video and panel go), until it is removed (Remove camera: L.removing, then it goes). The clock
    follows the cameras in play. */
 function removeSpot(s) {
@@ -414,8 +415,11 @@ function removeSpot(s) {
   sceneChanged();
 }
 
-/** A camera out of play: its camera frozen where it was, its video and panel gone. */
+/** A camera out of play: its camera still where it was, its video and panel gone. Locked (31 Oct,
+    the user: one way a camera stops): one that a Load, an Undo or a replay's end left out of play
+    comes in locked (L.autoLocked, until its padlock is used). */
 function park(s) {
+  if (!isLocked(s.name)) { L.lockedCams.add(s.name); L.autoLocked.add(s.name); }
   s.parked = true;
   s.player = null;
   stopVideo(s);
@@ -523,7 +527,7 @@ async function openSite(run, { live = null } = {}) {
         spots: [], focus: null, locked: null, players: [], section: null, loading: new Map(), tints: new Map(),
         loadTimes: {}, extra: new Map(), keep: info.start_spot, solo: null, framed: null, boxes: new Set(), lastTint: new Map(), parked: [], ghosts: new Set(),
         removing: new Map(), released: new Map(), markNext: null, live, hiddenCams: new Set(), lockedCams: new Set(),
-        inPlay: new Set([info.start_spot]) };
+        autoLocked: new Set(), inPlay: new Set([info.start_spot]) };
   P.plays = 0;
   lastStart[L.site] = start.run;
   loading("the machine at rest");
@@ -615,9 +619,9 @@ function nextFocus(d = 1) {
 const heldBy = (name) => (L ? L.players.find((p) => p.spot === name && L.released.get(name) !== p.player) || null : null);
 
 /* A click on a camera (or Tab): the marked camera, which the mouse, the keys and the controls act
-   on. One no phone holds becomes the mouse's camera: in play from here (a frozen one comes back where
-   it stood); the mouse's camera before stays in play where it stands (31 Oct, the user: they all run
-   at once; only the padlock freezes one). */
+   on. One no phone holds becomes the mouse's camera: in play from here; the mouse's camera before
+   stays in play where it stands (31 Oct, the user: they all run at once; only the padlock stops one,
+   and a locked one is selected only). */
 function markCamera(s) {
   if (!L || !s) return;
   if (isLocked(s.name)) { selectCamera(s.name); flash(`${s.name} is locked · its padlock unlocks it`); return; }
@@ -670,10 +674,11 @@ function removeCamera(name) {
 }
 
 /* The layers' padlock (31 Oct, the user: "lock them there like a Photoshop layer"): a locked camera
-   stays where it is. Nobody moves it: in play it leaves play (frozen, what it drew kept as its
-   layer), its phone picks again and the phones see it locked; a click selects it only. Its layer
-   stays: Clear layer, Clear all, Remove, Undo and Load leave it (a replay still shows it). One
-   camera stays unlocked (the view always has one in play). Recorded with the pass. */
+   stays where it is. Nobody moves it: in play it leaves play (what it drew kept as its layer), its
+   phone picks again and the phones see it locked; a click selects it only. Its layer stays: Clear
+   layer, Clear all and Remove leave it, and Undo and Load too once it was locked here (a camera a
+   Load, an Undo or a replay brought in locked, L.autoLocked, is theirs to change). Unlocked: in play,
+   where it stands. One camera stays unlocked (the view always has one in play). Recorded. */
 function isLocked(name) { return !!L && L.lockedCams.has(name); }
 
 function setLock(name, on) {
@@ -686,6 +691,7 @@ function setLock(name, on) {
     const free = [...L.spots, ...L.parked].filter((x) => x !== s && !isLocked(x.name) && !L.removing.has(x.name));
     if (!free.length) { flash("One camera stays unlocked: the view always has one in play"); return; }
     L.lockedCams.add(name);
+    L.autoLocked.delete(name);
     const holder = heldBy(name);
     if (holder) { L.released.set(name, holder.player); if (link) link.sendMessage({ type: "release", spot: name }); }
     if (L.spots.includes(s)) {
@@ -699,18 +705,23 @@ function setLock(name, on) {
     }
   } else {
     L.lockedCams.delete(name);
-    syncScene();                                 // in play again, where it stands (when it was)
+    L.autoLocked.delete(name);
+    L.inPlay.add(name);
+    syncScene();                                 // in play, where it stands
   }
   rec.event("lock", { camera: name, value: !!on });
   flash(on ? `${name}: locked · nobody moves it; Clear, Remove, Undo and Load leave its layer`
-           : `${name}: unlocked${L.inPlay.has(name) ? " · in play again" : ""}`);
+           : `${name}: unlocked · in play`);
   sceneChanged();
 }
 
-/** The locked camera whose layers step st would change (its own, or the ones it brings back), or null. */
+/** Whether camera `name` was locked here (its padlock), not brought in locked by a Load, an Undo or a replay. */
+const lockedHere = (name) => isLocked(name) && !L.autoLocked.has(name);
+
+/** The camera locked here whose layers step st would change (its own, or the ones it brings back), or null. */
 function lockedBy(st) {
   const names = [...past.items.filter((it) => it.key === st.key).map((it) => it.cam), ...(st.replaced || []).map((d) => d.cam)];
-  return names.find(isLocked) || null;
+  return names.find(lockedHere) || null;
 }
 
 /* The layers' eye (31 Oct): a camera and its layers hidden in the main view (it goes on drawing and
@@ -770,7 +781,7 @@ function viewPose(v) {
     return { pos: new THREE.Vector3(...toScene(fs, cam.C)), quat: cvQuat(cam.R_wc), fov: lockedFov(), lock: v === 3 ? "start" : "virtual" };
   }
   let pos, target, fov = 35;
-  const all = [...L.spots, ...L.parked];          // the collage's cameras: in play and frozen
+  const all = [...L.spots, ...L.parked];          // the collage's cameras: in play and locked
   const one = L.solo || (L.framed && all.includes(L.framed) ? L.framed : null);
   if (all.length <= 1 || one) {                    // one camera (or one framed / shown alone)
     fs = one || fs;
@@ -856,10 +867,12 @@ function unlock() {
 $("#stage").addEventListener("pointerdown", (e) => { if (e.button === 0 && !e.altKey && !e.shiftKey && L && L.locked && !anim.to) unlock(); }, true);
 
 /* Shift+click a camera in the 3D view (31 Oct, the user): as a click on its layer, it is selected and
-   the mouse moves it (a locked one: selected only). The camera whose frustum passes nearest, within
-   PICK_PX; a drag (Shift: the orbit's pan) picks nothing. */
-const PICK_PX = 12;
-const pickAt = { x: 0, y: 0, id: null };
+   the mouse moves it (a locked one: selected only); a double Shift+click (within PICK_MS): Focus, the
+   view flies to it (again: the whole scene). The camera under the pointer (its frustum or its
+   picture, the nearest in front) or whose lines pass within PICK_PX; a drag (Shift: the orbit's pan)
+   picks nothing. */
+const PICK_PX = 12, PICK_MS = 400;
+const pickAt = { x: 0, y: 0, id: null, last: null, t: 0 };
 $("#stage").addEventListener("pointerdown", (e) => {
   if (e.button === 0 && e.shiftKey) Object.assign(pickAt, { x: e.clientX, y: e.clientY, id: e.pointerId });
 }, true);
@@ -868,22 +881,34 @@ window.addEventListener("pointerup", (e) => {
   pickAt.id = null;
   if (!L || R || Math.hypot(e.clientX - pickAt.x, e.clientY - pickAt.y) > 5) return;
   const s = cameraAt(e.clientX, e.clientY);
-  if (s) markCamera(s);
+  if (!s) return;
+  const twice = pickAt.last === s && performance.now() - pickAt.t < PICK_MS;
+  Object.assign(pickAt, { last: twice ? null : s, t: performance.now() });
+  if (twice) { toggleFocus(s); selectCamera(s.name); } else markCamera(s);
 });
 
-/** The camera shown in the main view whose drawn frustum (the rays from its centre, the image's
-    edges) passes nearest to the screen point (x, y), within PICK_PX; null if none. */
+/** The camera shown in the main view under the screen point (x, y): inside its drawn frustum (the
+    rays from its centre to the image's corners, the image), the nearest in front; else the one whose
+    lines pass nearest, within PICK_PX; null if none. */
 function cameraAt(x, y) {
   const r = canvas.getBoundingClientRect(), v = new THREE.Vector3();
   const screen = (p, m) => {
     v.set(p[0], p[1], p[2]).applyMatrix4(m).project(camera);
-    return v.z > -1 && v.z < 1 ? [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height] : null;
+    return v.z > -1 && v.z < 1 ? [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height, v.z] : null;
   };
-  let best = null, bd = PICK_PX;
+  let best = null, bd = PICK_PX, bz = Infinity;
   for (const s of [...L.spots, ...L.parked]) {
     const lines = s.cams.virt;
     if (!lines.corners || !lines.group.visible || L.hiddenCams.has(s.name) || (L.solo && L.solo !== s)) continue;
     const m = lines.group.matrixWorld, c = screen(lines.C, m), q = lines.corners.map((p) => screen(p, m));
+    if (c && q.every(Boolean)) {
+      const tris = [[q[0], q[1], q[2]], [q[0], q[2], q[3]], ...q.map((p, i) => [c, p, q[(i + 1) % 4]])];
+      if (tris.some(([a, b, d]) => inTri(x, y, a, b, d))) {
+        const z = Math.min(c[2], ...q.map((p) => p[2]));
+        if (bd > 0 || z < bz) { bd = 0; bz = z; best = s; }
+        continue;
+      }
+    }
     for (let i = 0; i < 4; i++)
       for (const [a, b] of [[c, q[i]], [q[i], q[(i + 1) % 4]]]) {
         if (!a || !b) continue;
@@ -892,6 +917,13 @@ function cameraAt(x, y) {
       }
   }
   return best;
+}
+
+/** Whether the point (x, y) is inside the screen triangle a-b-c (either winding). */
+function inTri(x, y, a, b, c) {
+  const s = (p, q) => (q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0]);
+  const d1 = s(a, b), d2 = s(b, c), d3 = s(c, a);
+  return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
 }
 
 /** The distance from the point (x, y) to the segment a-b (screen pixels). */
@@ -1396,7 +1428,7 @@ function lastCameras(data) {
 
 /* Load: a saved pass's layers back on its cameras (a step: Stack off, they replace those cameras'
    layers; on, they add to them; the play being drawn stays as it is). Its cameras not in play
-   show frozen at their last recorded pose. poses: name -> camera (else from its recording). */
+   come in locked at their last recorded pose. poses: name -> camera (else from its recording). */
 async function loadPass(q, poses = null) {
   if (!L || R || allShown(q)) return;
   const site = L;
@@ -1416,7 +1448,7 @@ async function loadPass(q, poses = null) {
       got.push({ c, data, snap, offset: offsetFrom(c.origin || meta.origin, L.origin0) });
     }
     if (R) return;
-    const locked = got.filter((g) => isLocked(g.c.name)).map((g) => g.c.name);
+    const locked = got.filter((g) => lockedHere(g.c.name)).map((g) => g.c.name);
     if (locked.length === got.length) { flash(`Pass ${m.id}: its cameras are locked (${locked.join(", ")})`); return; }
     const st = newStep("load", { id: m.id, run: q.run });
     for (const g of got) {
@@ -1545,7 +1577,7 @@ function finishReplay() {
     const st = newStep("replay", { id: R.q.id, run: R.q.run });
     for (const [name, snap] of dr) {
       const s = R.byName.get(name);
-      if (isLocked(name)) continue;
+      if (lockedHere(name)) continue;
       if (!st.stacked) takeLayers(st, name);
       addLayer(st.key, name, s.data, snap, s.offset, s.tint, camCopy(R.play.cams.get(name)));
     }
@@ -2261,7 +2293,7 @@ function syncTitle() {
 /* The layers (31 Oct, Photoshop's; was the Cameras list): a row per camera in the scene (and
    loading), in the site's order: its eye (shown / hidden in the view), its tint, name and who moves
    it, its padlock. A click selects it and marks it (the mouse moves it); Shift+click selects it and
-   focuses it (a frozen camera stays frozen). Below: + Camera, Remove, how many of the site's
+   focuses it (a locked camera stays locked). Below: + Camera, Remove, how many of the site's
    cameras are in, then the selected camera's block. */
 const EYE_SVG = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true"><path d="M1.5 8s2.4-4.2 6.5-4.2S14.5 8 14.5 8s-2.4 4.2-6.5 4.2S1.5 8 1.5 8z"/><circle class="on" cx="8" cy="8" r="1.9"/><path class="off" d="M3 13 13 3"/></svg>`;
 const LOCK_SVG = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true"><rect x="3.5" y="7.5" width="9" height="6"/><path class="shut" d="M5.5 7.5V5.2a2.5 2.5 0 0 1 5 0v2.3"/><path class="open" d="M5.5 7.5V5.2a2.5 2.5 0 0 1 5 0"/></svg>`;
@@ -2313,20 +2345,20 @@ function syncSpots() {
     b.querySelector(".who").textContent = !r.s ? "loading" : (r.s === L.solo ? "alone · " : "") + whoOf(r.s);
   });
   syncCamSel();
-  const N = L.cams.length, F = L.parked.length, n = L.spots.length + F;
-  $("#spot-sum").textContent = N > 1 ? `${n} of ${N} cameras in the scene (${L.spots.length} in play` + (F ? `, ${F} frozen)` : ")")
+  const N = L.cams.length, n = L.spots.length + L.parked.length, F = [...L.spots, ...L.parked].filter((s) => isLocked(s.name)).length;
+  $("#spot-sum").textContent = N > 1 ? `${n} of ${N} cameras in the scene (${n - F} in play` + (F ? `, ${F} locked)` : ")")
                                      : "The site's only camera";
   $("#cam-add").disabled = !!R || n + loads.size >= N;
 }
 
 /** Who moves camera s: a phone (P1..), the mouse (the marked one), a replay, or nobody (running where
-    it stands; frozen, locked). */
-const whoOf = (s) => (isLocked(s.name) ? "locked" : s.parked ? "frozen" : s.player != null ? `P${s.player}` : R && R.byName.has(s.name) ? "replay"
+    it stands; locked). */
+const whoOf = (s) => (R && R.byName.has(s.name) ? "replay" : isLocked(s.name) ? "locked" : s.player != null ? `P${s.player}`
                       : s === L.focus ? "mouse" : "running");
 
 /* The selected camera (30 Oct; was each camera's menu, its row's ⋯): the panel's camera block
    and Output's "Camera" act on it. It follows the marked camera (a click, Tab, a phone's panel);
-   Shift+click selects a camera without marking it (a frozen one stays frozen). */
+   Shift+click selects a camera without marking it (a locked one stays locked). */
 const sel = { name: null };
 const selSpot = () => (L && sel.name && (spotOf(sel.name) || parkedOf(sel.name))) || null;
 /** The camera the mouse's sliders show and set: the marked one (the mouse's, unless a phone holds it). */
@@ -2360,9 +2392,9 @@ function syncCamSel() {
 function syncMouse() {
   const s = selSpot(), holder = s && heldBy(s.name), mine = !!s && s === L.focus && !holder && !isLocked(s.name);
   $("#cm-mouse").hidden = !mine;
-  const why = !s || mine ? "" : isLocked(s.name) ? "Locked: nobody moves it and its layer stays. Its padlock unlocks it."
+  const why = !s || mine ? "" : isLocked(s.name) ? "Locked: nobody moves it, it does not draw and its layer stays. Its padlock puts it in play."
     : holder ? `P${holder.player} holds it: zero, gain and scale on its phone. Click a camera no phone holds to move it with the mouse.`
-    : s.parked ? "Frozen: click it to move it with the mouse." : "Running where it stands: click it to move it with the mouse.";
+    : "Running where it stands: click it to move it with the mouse.";
   $("#cm-phone").hidden = !why;
   $("#cm-phone").textContent = why;
   const el = $("#holders");
@@ -2794,7 +2826,7 @@ function togglePassMenu(on) {
 
 /* Focus (29 Oct (4), after the phone test): the view flies to frame s and its traces (the plan or
    the perspective, whichever is on; from a camera's own view or a free orbit, the last of the two);
-   the other cameras stay. s in play becomes the marked camera; a frozen one can be framed too (with
+   the other cameras stay. s in play becomes the marked camera; a locked one can be framed too (with
    Solo on, the one shown alone follows). null, the whole scene: it flies back out to every camera
    of the collage (Solo off). */
 function setFramed(s, notify = true) {
@@ -2814,7 +2846,7 @@ const wholeScene = () => setFramed(null);
 /* Solo (29 Oct; was Focus until 29 Oct (4)): s alone in the main view (its camera, video and layers)
    against the whole collage; the rest is hidden there only: the cameras in play go on drawing and
    are recorded, their panels stay. null: the whole collage again. s in play becomes the marked
-   camera; a frozen one can be shown alone too. */
+   camera; a locked one can be shown alone too. */
 function setSolo(s, notify = true) {
   if (!L) return;
   L.solo = s && (L.spots.includes(s) || L.parked.includes(s)) ? s : null;

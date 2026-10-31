@@ -61,6 +61,7 @@ export function screenAngle() {
 }
 
 const FLAT = 0.35;         // the world's up this little in the screen's plane: near flat, no clear hold
+const UPRIGHT = 0.7;       // a hold changes only this upright (the camera within ~45 deg of level)
 const SWITCH = 1.5;        // a hold changes (landscape <-> portrait) once the other way dominates by this
 
 /**
@@ -69,12 +70,15 @@ const SWITCH = 1.5;        // a hold changes (landscape <-> portrait) once the o
  * held when its rotation lock is on (30 Oct: an iPhone filming sideways reported 0, so its camera
  * came out rolled 90 deg; a phone that steers would swap pan and tilt). landscape: true / false
  * keeps to that hold's two angles (the recorder's frames have one shape), null: either, changing
- * only past SWITCH. Near flat: prev.
+ * only past SWITCH. Short of UPRIGHT: prev (31 Oct, the user: a phone looking down on the plan
+ * wobbled across flat or tipped sideways, and the hold turned 90 or 180 deg, so Live's camera spun;
+ * a prev of the other shape than landscape asks is put right from FLAT).
  */
 export function holdAngle(alpha, beta, gamma, landscape = null, prev = 0) {
   const [cx, cy] = axes(qmul(qmul(about(2, alpha), about(0, beta)), about(1, gamma)));
   const ux = cx[2], uy = cy[2];                      // the world's up along the phone's x, y
-  if (Math.hypot(ux, uy) < FLAT) return prev;
+  const fits = landscape == null || landscape === (prev === 90 || prev === 270);
+  if (Math.hypot(ux, uy) < (fits ? UPRIGHT : FLAT)) return prev;
   let side = landscape;
   if (side == null) {
     const ax = Math.abs(ux), ay = Math.abs(uy);

@@ -1176,7 +1176,9 @@ def test_the_hold_comes_from_gravity_not_the_screen_lock():
     camera came out rolled 90 deg. holdAngle takes the angle from gravity: the hand-worked holds
     give their own angle, the locked iPhone gives 90 (level again), a phone near flat keeps the
     last one, a hold kept to landscape picks the side that puts the picture's up up, and an open
-    hold changes only past the switch (no flapping at 45 deg)."""
+    hold changes only past the switch (no flapping at 45 deg). 31 Oct: a phone looking down on the
+    plan keeps its hold as it wobbles across flat or tips sideways (Live's camera spun 90 / 180
+    deg); turned over or upright it still changes."""
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed")
@@ -1194,6 +1196,9 @@ def test_the_hold_comes_from_gravity_not_the_screen_lock():
             "  flat: [holdAngle(0, 0, 0, null, 270), holdAngle(0, 5, 10, true, 90)],\n"
             "  rand: rand.map(c => [holdAngle(c[0], c[1], c[2], true, 90), holdAngle(c[0], c[1], c[2], false, 0)]),\n"
             "  diag: [[45, 90], [50, 90], [65, 90], [45, 0]].map(([r, p]) => holdAngle(90, r, -90, null, p)),\n"
+            "  plan: [[-30, 0, 0], [30, 0, 180], [10, 30, 0], [10, -30, 0], [-60, 0, 0], [90, 0, 180]]\n"
+            "        .map(([b, g, p]) => holdAngle(0, b, g, null, p)),\n"
+            "  fit: holdAngle(0, 10, -30, true, 0),\n"
             "}));")
     r = subprocess.run([node, "--input-type=module", "-e", code], capture_output=True,
                        encoding="utf-8", timeout=60, check=False)
@@ -1207,12 +1212,14 @@ def test_the_hold_comes_from_gravity_not_the_screen_lock():
     assert out["flat"] == [270, 90]                             # near flat: the last one kept
     for c, (land, port) in zip(rand, out["rand"]):
         down = {a: _cam(*c, a)[2, 1] for a in (0, 90, 180, 270)}   # the picture's down, its z
-        if np.hypot(*_cam(*c, 0)[2, :2]) < 0.35:
-            continue                                             # near flat: no clear hold
+        if np.hypot(*_cam(*c, 0)[2, :2]) < 0.7:
+            continue                                             # short of upright: the last one
         assert down[land] == min(down[90], down[270]) and down[port] == min(down[0], down[180]), c
     d = out["diag"]                                             # landscape rolled 45, 50, 65 deg
     assert d[:2] == [90, 90] and d[2] in (0, 180)               # it changes past the switch only
     assert d[3] in (0, 180)                                     # at 45 deg each hold keeps itself
+    assert out["plan"] == [0, 180, 0, 0, 180, 0]                # 30 deg past flat, 60 down, tipped
+    assert out["fit"] == 90                                     # sideways: kept; over, upright: changed
 
 
 def test_phone_gain_runs_0_1_to_3_and_its_ticks_sit_on_their_values():

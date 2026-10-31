@@ -177,13 +177,20 @@ skews it. Whatever leaves the virtual view is lost: a machine gap, authored live
 ```powershell
 pip install -e ".[live]"
 motus live-export runs/<site>/<run>     # scene package: camera, terrain, aerial, tracks, blurred video
-motus app                               # open Live from the run; phones scan the QR code
+motus app                               # motus live from the start menu; phones scan the QR code (Phones, bottom left)
 ```
 
 * **The phone:** a web page, nothing to install. It reads turn, tilt and roll at about 60 Hz, with
   zero, level and gain (0.1–3×). Holding SPACE turns the space itself in 3D.
 * **1–4 phones:** each player takes a camera of the site, on one shared clock. The view grows with
   the cameras in play.
+* **Layers:** Live's panel lists the cameras in the scene like layers in Photoshop. Every camera
+  runs at once: the one you click (or Shift+click in the 3D view) moves with the mouse, a phone
+  moves its own, the rest hold their pose and keep drawing. Double Shift+click a camera in the 3D
+  view to fly to it. + Camera brings in any of the site's cameras from the laptop. The eye hides a
+  camera in the view (and in the collage's output). The padlock is the one way to stop a camera:
+  nobody moves it, it does not draw, and Clear and Remove leave its drawing alone (Undo and Load
+  too, once you locked it). The cameras a Load, an Undo or a replay brings back come in locked.
 * **Passes:** one play-through of the clock is a pass. It is saved by itself under
   `<run>/live/passes/<id>/` with the moves, the presses and the machine's counts. Replay it exactly,
   stack or undo passes, or render one to an MP4.
@@ -194,14 +201,15 @@ motus app                               # open Live from the run; phones scan th
   the tools below take it like any other run.
 * **Realtime:** one phone films and the laptop tracks it as it comes (YOLO + ByteTrack on the
   GPU: about 22 fps at 1080p and 27 at 720p on an RTX 5060 laptop, 15–22 with Live open on the
-  same laptop). Pick "Realtime · now" in Live's site picker, press Record on a phone and hold it
+  same laptop). Press Realtime at the top of Live's panel, press Record on a phone and hold it
   still for a second: that calibrates the camera once, from the phone's sensors and a flat ground,
   for the whole recording. If people come
   out the wrong height, the phone offers a height or tilt fix (a new recording). Live draws the
   tracks about 0.3 s behind, and the other phones turn the camera as usual. At Stop the recording
   becomes a site of its own (`runs/live/<id>/`, with its blurred video), and its pass replays,
   renders, exports and makes a sheet like any other. A pass that ends earlier (another site) is
-  saved with what came so far. The app's Realtime page sets 1080p or 720p and lists the recordings.
+  saved with what came so far. Realtime setup (under Realtime while it is on) sets 1080p or 720p;
+  the saved recordings open from Live's site menu.
 * **Privacy:** the phones that turn the camera send only poses and button presses, over the local
   network (HTTPS + WSS, a pairing code, a self-signed certificate). In Realtime the recording phone
   also sends its camera frames over that link, to the laptop only. The laptop blurs them before
