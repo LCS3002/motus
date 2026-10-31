@@ -1,0 +1,107 @@
+/* motus, the start menu (30 Oct): the first screen of the app. Black; a site's own tracks draw
+   themselves in on a tilted plan behind (the speed ramp, as in Live); letterbox bars; the word;
+   the menu. Every value from tokens.css; no violet (it means the interference). */
+
+.intro { display: none; position: fixed; inset: 0; z-index: 90; overflow: hidden; background: var(--bg); color: var(--fg);
+         user-select: none; -webkit-user-select: none; }
+.intro-on .intro { display: block; }
+.intro-on body { overflow: hidden; }
+
+/* the drawing: a plan seen low, its far edge into the dark */
+.intro-gl { position: absolute; left: 50%; top: 50%; width: 150vw; height: 150vh; display: block;
+            transform: translate(-50%, -46%) perspective(1500px) rotateX(52deg);
+            -webkit-mask-image: linear-gradient(to top, #000 34%, transparent 82%); mask-image: linear-gradient(to top, #000 34%, transparent 82%);
+            opacity: 0; transition: opacity 2400ms var(--ease-out); }
+.intro.lit .intro-gl { opacity: 1; }
+.intro-shade { position: absolute; inset: 0; pointer-events: none;
+               background: radial-gradient(120% 90% at 70% 60%, transparent 40%, rgb(0 0 0 / 0.75) 100%),
+                           linear-gradient(90deg, rgb(0 0 0 / 0.82) 0%, rgb(0 0 0 / 0.5) 34%, transparent 62%); }
+
+/* letterbox: in at the start, shut over everything on the way out */
+.intro-lb { position: absolute; left: 0; right: 0; height: 0; background: #000; z-index: 3; pointer-events: none;
+            transition: height 1100ms var(--ease-in-out); }
+.intro-lb.top { top: 0; border-bottom: 1px solid transparent; }
+.intro-lb.bottom { bottom: 0; border-top: 1px solid transparent; }
+.intro.lit .intro-lb { height: 7.5vh; }
+.intro.lit .intro-lb.top { border-bottom-color: var(--rule-soft); }
+.intro.lit .intro-lb.bottom { border-top-color: var(--rule-soft); }
+.intro.leaving .intro-lb { height: 50.5vh; transition-duration: 620ms; }
+
+/* the app window's own frame: the top strip drags it */
+.intro-drag { position: absolute; top: 0; left: 0; right: 0; height: var(--bar-h); z-index: 5; }
+.custom-frame .intro-drag { app-region: drag; -webkit-app-region: drag; }
+
+/* registration crosses in the corners of the frame */
+.intro-x { position: absolute; width: 11px; height: 11px; z-index: 4; opacity: 0; transition: opacity 900ms var(--ease) 900ms; }
+.intro.lit .intro-x { opacity: 1; }
+.intro-x::before, .intro-x::after { content: ""; position: absolute; background: var(--cross); }
+.intro-x::before { left: 5px; top: 0; width: 1px; height: 11px; }
+.intro-x::after { top: 5px; left: 0; height: 1px; width: 11px; }
+.intro-x.tl { left: calc(var(--margin) * 2 - 5px); top: calc(7.5vh - 5px); }
+.intro-x.tr { right: calc(var(--margin) * 2 - 5px); top: calc(7.5vh - 5px); }
+.intro-x.bl { left: calc(var(--margin) * 2 - 5px); bottom: calc(7.5vh - 6px); }
+.intro-x.br { right: calc(var(--margin) * 2 - 5px); bottom: calc(7.5vh - 6px); }
+
+/* the head line inside the top bar */
+.intro-head { position: absolute; z-index: 6; left: calc(var(--margin) * 2); top: 0; height: 7.5vh; min-height: 36px;
+              display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.intro-head svg { width: 16px; height: 16px; color: var(--fg); }
+.intro-head .label { white-space: nowrap; }
+
+/* the word and the line under it */
+.intro-main { position: absolute; z-index: 4; left: calc(var(--margin) * 2); top: 14vh; bottom: 14vh; width: min(560px, 46vw);
+              display: flex; flex-direction: column; justify-content: space-between; }
+.intro-word { margin: 0; font: 200 clamp(84px, 11vw, 176px)/0.86 var(--font-sans); letter-spacing: -0.065em; white-space: nowrap; }
+.intro-word span { display: inline-block; opacity: 0; filter: blur(14px); transform: translateY(0.12em);
+                   transition: opacity 1400ms var(--ease-out), filter 1600ms var(--ease-out), transform 1600ms var(--ease-out); }
+.intro.lit .intro-word span { opacity: 1; filter: none; transform: none; }
+.intro-tag { margin: 18px 0 0; max-width: 400px; font: var(--t-text); color: var(--fg-2); opacity: 0; transition: opacity 1200ms var(--ease) 1100ms; }
+.intro.lit .intro-tag { opacity: 1; }
+
+/* the menu: one line each, the chosen one white with its rule drawn in */
+.intro-menu { display: grid; gap: 2px; margin-top: 4vh; }
+.intro-row { position: relative; display: flex; align-items: center; opacity: 0; transform: translateY(14px);
+             transition: opacity 800ms var(--ease-out), transform 900ms var(--ease-out); }
+.intro.lit .intro-row { opacity: 1; transform: none; }
+.intro-item { flex: 1; display: grid; grid-template-columns: 34px auto minmax(0, 1fr); align-items: baseline; column-gap: 14px;
+              min-width: 0; padding: 9px 0 10px; border: 0; background: none; color: var(--fg); text-align: left; cursor: pointer; }
+.intro-item .i { font: var(--t-label); letter-spacing: var(--tracking-label); color: var(--faint); transition: color var(--t) var(--ease); }
+.intro-item .t { font: 400 clamp(26px, 2.6vw, 38px)/1 var(--font-sans); letter-spacing: -0.035em; text-transform: uppercase;
+                 color: rgb(255 255 255 / 0.36); transition: color var(--t) var(--ease), letter-spacing 500ms var(--ease-out); white-space: nowrap; }
+.intro-item .s { font: var(--t-mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                 opacity: 0; transform: translateX(-6px); transition: opacity var(--t) var(--ease), transform var(--t) var(--ease); }
+.intro-row::after { content: ""; position: absolute; left: 48px; right: 0; bottom: 0; height: 1px; background: var(--fg);
+                    transform: scaleX(0); transform-origin: left; transition: transform 520ms var(--ease-out); }
+.intro-row.sel::after { transform: scaleX(1); }
+.intro-row.sel .t { color: var(--fg); letter-spacing: -0.025em; }
+.intro-row.sel .i { color: var(--fg); }
+.intro-row.sel .s, .intro-row.primary .s { opacity: 1; transform: none; }
+.intro-row.primary .s { color: var(--fg-2); }
+.intro-item:disabled { cursor: default; }
+.intro-item:disabled .t { color: rgb(255 255 255 / 0.18); }
+.intro-item:focus-visible { outline: none; }
+.intro-cycle { display: flex; gap: 2px; margin-left: 10px; }
+.intro-cycle[hidden] { display: none; }
+.intro-cycle button { width: 26px; height: 26px; border: 1px solid var(--line); background: none; color: var(--fg-2); display: grid; place-items: center; padding: 0; }
+.intro-cycle button:hover { background: var(--hover); color: var(--fg); border-color: rgb(255 255 255 / 0.45); }
+.intro-cycle svg { width: 10px; height: 10px; }
+
+/* the readouts, in the bottom bar */
+.intro-foot { position: absolute; z-index: 6; left: calc(var(--margin) * 2); right: calc(var(--margin) * 2); bottom: 0; height: 7.5vh; min-height: 32px;
+              display: flex; align-items: center; gap: 24px; color: var(--muted); opacity: 0; transition: opacity 1000ms var(--ease) 1500ms; }
+.intro.lit .intro-foot { opacity: 1; }
+.intro-read { display: flex; gap: 18px; min-width: 0; overflow: hidden; white-space: nowrap; font: var(--t-mono); }
+.intro-read b { font-weight: 400; color: var(--fg-2); }
+.intro-keys { margin-left: auto; white-space: nowrap; color: var(--faint); }
+
+/* out to the workspace: a fade, the plan sinking */
+.intro.out { opacity: 0; transition: opacity 650ms var(--ease); pointer-events: none; }
+.intro.out .intro-gl { transform: translate(-50%, -40%) perspective(1500px) rotateX(58deg); transition: transform 900ms var(--ease-in-out), opacity 600ms; }
+
+@media (max-width: 760px) {
+  .intro-main { width: calc(100vw - var(--margin) * 4); }
+  .intro-keys { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro *, .intro { transition: none !important; }
+}

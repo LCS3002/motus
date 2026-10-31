@@ -28,7 +28,8 @@
 <header class="bar" id="bar">
   <button class="btn sm back" id="back" title="Back to the run">← Run</button>
   <svg class="logo" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="16" cy="19" r="8"/><path d="M3 6.5h26"/></svg>
-  <span class="clip" id="clip-name">Live</span>
+  <button class="site-btn" id="site-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="site-menu"
+          title="The site: another site, Realtime, the recordings (only the laptop switches: the pass is saved, the phones pick again)"><span class="clip" id="clip-name">Live</span><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1"/></svg></button>
   <span class="sub" id="clip-sub"></span>
   <div class="grow"></div>
   <div class="seg" id="views" role="tablist" aria-label="Views">
@@ -37,6 +38,7 @@
     <button data-view="3" title="From the start camera (3)">3 Start</button>
     <button data-view="4" title="From the virtual camera (4)">4 Virtual</button>
   </div>
+  <button class="bar-btn" id="whole-scene" title="The view flies back out to frame every camera of the collage, in the plan or the perspective (W; Solo off)">Whole scene <span class="key">W</span></button>
   <button class="icon-btn" id="fs-btn" title="Full screen (F)" aria-label="Full screen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
   <button class="icon-btn" id="panel-btn" title="Panel (P)" aria-label="Panel" aria-pressed="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><rect x="2.5" y="2.5" width="11" height="11"/><path d="M10 2.5v11"/></svg></button>
 </header>
@@ -60,69 +62,91 @@
   <div class="hud-note" id="h-note"></div>
 </section>
 
+<section class="smenu" id="site-menu" hidden role="menu" aria-label="Sites">
+  <div class="site-list" id="site-list"></div>
+</section>
+
 <aside class="panel" id="panel" aria-label="Live controls">
+  <!-- 30 Oct, the panel's parts: who plays (Players), what they play (Cameras), what is drawn
+       (Drawing), what comes out (Output), how it looks (Display, folded); the site in the top bar -->
+  <div class="part" id="part-players">
+  <h2 class="part-h label">Players</h2>
+  <section class="phone" id="phone">
+    <h3 class="label">Phones</h3>
+    <div class="qr" id="qr"></div>
+    <div class="phone-url mono" id="phone-url"></div>
+    <div class="row"><span class="phones label" id="phones">Starting…</span><div class="grow"></div>
+      <button class="btn sm" id="new-code" title="A new pairing code: phones must scan again">New code</button></div>
+    <div class="holders" id="holders" aria-label="Who holds which camera"></div>
+    <p class="hint" id="phone-note"></p>
+  </section>
+  <section id="mouse">
+    <h3 class="label">Mouse <span class="mouse-cam" id="mouse-cam"></span></h3>
+    <div class="cm-mouse" id="cm-mouse">
+    <div class="row"><button class="btn sm" id="zero" title="The current pose becomes the start camera (Z)">Zero <span class="key">Z</span></button></div>
+    <label class="slider" title="How far the camera turns for a turn of the hand: 2× turns it twice as far (G / Shift+G: a step up / down)"><span class="label">Gain <span class="key">G</span></span><input type="range" id="gain" min="0.1" max="3" step="0.05" value="1"><output id="gain-v" class="num">1.00×</output></label>
+    <label class="slider" title="How far the camera moves for a step of the hand: 1 m of the phone or mouse = this many metres on the site"><span class="label">Scale</span><input type="range" id="scale" min="0" max="5" step="1" value="0"><output id="scale-v" class="num">1 m = 1 m</output></label>
+    <p class="hint">Right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move · hold M: turn the space · M M: level</p>
+    </div>
+    <p class="hint" id="cm-phone" hidden></p>
+  </section>
+  </div>
   <div class="part" id="part-cameras">
   <h2 class="part-h label">Cameras <span class="key">Tab</span></h2>
   <section id="spots">
     <div class="spot-list" id="spot-list"></div>
     <p class="hint" id="spot-sum"></p>
-    <div class="row"><button class="btn sm" id="whole-scene" title="The view flies back out to frame every camera of the collage, in the plan or the perspective (W; Solo off)">Whole scene <span class="key">W</span></button></div>
-    <p class="hint">Click: the marked camera (the mouse and the keys act on it; one no phone holds is the mouse's) · Shift+click: focus · ⋯ its menu. A phone takes a camera from its picker; a camera stays until it is removed.</p>
+    <p class="hint">Click: select and mark it (the mouse and the keys act on it) · Shift+click: select and focus. A phone picks its own camera; a camera stays until removed.</p>
   </section>
-  <section class="cmenu" id="cam-menu" hidden aria-label="Camera">
-    <div class="row"><h3 class="label" id="cm-name"></h3><div class="grow"></div>
-      <button class="btn sm" id="cm-close" title="Close (Esc)">Close</button></div>
+  <section class="csel" id="cam-sel" aria-label="The selected camera">
+    <h3 class="label" id="cm-name"></h3>
     <div class="opts cm-do">
       <button id="cm-focus" title="The view flies to this camera and its traces, in the plan or the perspective; the others stay / the whole scene again (O, or Shift+click it; W)">Focus <span class="key">O</span></button>
       <button id="cm-solo" title="This camera alone in the main view / all again (I)">Solo <span class="key">I</span></button>
       <button id="cm-video" title="Its video box (its phone's view, in the column on the right) open / closed; B: the boxes of every camera in play">Video <span class="key">B</span></button>
     </div>
+    <label class="check" title="Its movement from the phone eased: calm, no jitter, about 0.1 s behind (J: the marked camera). Off: it follows the phone exactly. Recorded with the pass"><input type="checkbox" id="cm-smooth"> Smooth <span class="key">J</span></label>
     <div class="opts cm-do">
       <button id="cm-clear" title="Its layer off the view (X: the marked camera) · Undo brings it back">Clear layer <span class="key">X</span></button>
       <button id="cm-remove" title="Out of the scene with its layer; a phone holding it picks again · Undo brings it back">Remove</button>
     </div>
-    <div class="opts cm-do">
-      <button id="cm-sheet" title="This camera's sheet: its layer on top, the score of the plays that made it below (light, PDF + PNG, in live/sheets/)">Sheet</button>
-      <button id="cm-exports" title="This camera's layer to Rhino, Houdini and GeoJSON in one go (in live/exports/; the play being drawn is saved first)">Exports</button>
-    </div>
-    <label class="check" title="Its movement from the phone eased: calm, no jitter, about 0.1 s behind (J: the marked camera). Off: it follows the phone exactly. Recorded with the pass"><input type="checkbox" id="cm-smooth"> Smooth <span class="key">J</span></label>
-    <div class="cm-mouse" id="cm-mouse">
-    <div class="row"><button class="btn sm" id="zero" title="The current pose becomes the start camera (Z)">Zero <span class="key">Z</span></button></div>
-    <label class="slider"><span class="label">Gain <span class="key">G</span></span><input type="range" id="gain" min="0.1" max="3" step="0.05" value="1"><output id="gain-v" class="num">1.00×</output></label>
-    <label class="slider"><span class="label">Scale</span><input type="range" id="scale" min="0" max="5" step="1" value="0"><output id="scale-v" class="num">1 m = 1 m</output></label>
-    <p class="hint">Mouse: right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move · hold M: turn the space · M M: level</p>
-    </div>
-    <p class="hint" id="cm-phone" hidden></p>
-  </section>
-  <section class="phone" id="phone">
-    <h3 class="label">Phone</h3>
-    <div class="qr" id="qr"></div>
-    <div class="phone-url mono" id="phone-url"></div>
-    <div class="row"><span class="phones label" id="phones">Starting…</span><div class="grow"></div>
-      <button class="btn sm" id="new-code" title="A new pairing code: phones must scan again">New code</button></div>
-    <p class="hint" id="phone-note"></p>
   </section>
   </div>
-  <div class="part" id="part-scene">
-  <h2 class="part-h label">Scene</h2>
-  <section id="sites" hidden>
-    <h3 class="label">Site</h3>
-    <div class="opts" id="site-list" title="Only the laptop switches the site: the pass is saved, the phones pick again"></div>
-  </section>
+  <div class="part" id="part-drawing">
+  <h2 class="part-h label">Drawing</h2>
   <section id="passes">
-    <h3 class="label">Passes</h3>
-    <div class="row"><button class="btn sm" id="pass-undo" title="The last change taken back: a play, a Load, a camera cleared (the files stay)">Undo</button>
+    <div class="row"><button class="btn sm" id="pass-undo" title="The last change taken back: a play, a Load, a camera cleared or removed (the files stay)">Undo</button>
       <button class="btn sm" id="pass-clear" title="Every layer off the view (the files stay)">Clear all</button><div class="grow"></div>
       <span class="label pass-n" id="pass-n"></span></div>
     <label class="check" title="K: a play adds to its cameras' layers. Off: a play replaces its cameras' layers (every play is saved either way)"><input type="checkbox" id="pass-stack"> Stack passes <span class="key">K</span></label>
-    <button class="btn sm" id="pass-menu-btn" aria-pressed="false" aria-controls="pass-menu" title="The saved passes: load, replay, video, sheet, exports, delete (L)">Saved passes <span class="key">L</span></button>
-    <p class="hint">Each camera is a layer on the site. A play (the clock from 0 to the end of the longest clip in play) redraws only the cameras in play; the others keep theirs. Each play is saved as a pass; Undo and Clear only change the view.</p>
+    <button class="btn sm" id="pass-menu-btn" aria-pressed="false" aria-controls="pass-menu" title="The saved passes: load, replay, delete, their output (L)">Saved passes <span class="key">L</span></button>
+    <p class="hint">A <b>play</b> redraws the cameras in play and is saved as a <b>pass</b>; it leaves a <b>layer</b> on each camera it drew. All layers together: the <b>collage</b>. Undo and Clear only change the view.</p>
   </section>
+  </div>
+  <div class="part" id="part-output">
+  <h2 class="part-h label">Output</h2>
   <section id="scene-out">
-    <h3 class="label">Sheet and exports</h3>
-    <div class="row"><button class="btn sm" id="collage-sheet" title="The whole collage's sheet: all layers on top, the score of the plays that made them below (light, PDF + PNG, in live/sheets/); a pass's own sheet and exports: Saved passes (L)">Collage sheet</button>
-      <button class="btn sm" id="collage-export" title="Every layer together to Rhino, Houdini and GeoJSON in one go (in live/exports/; the play being drawn is saved first); a pass's own exports: Saved passes (L)">Export collage</button></div>
+    <div class="opts" id="out-scope" role="radiogroup" aria-label="What comes out">
+      <button data-scope="all" title="The whole collage: every layer in the view">Collage</button>
+      <button data-scope="camera" title="The selected camera's layer">Camera</button>
+      <button data-scope="pass" title="A saved pass">Pass</button>
+    </div>
+    <select class="out-pass" id="out-pass" hidden aria-label="The saved pass" title="The saved pass that comes out, newest first"></select>
+    <p class="hint" id="out-what"></p>
+    <div class="out-do">
+      <button class="btn sm" id="out-sheet" title="The sheet: the drawing on top, the score of the plays that made it below (light, PDF + PNG)">Sheet</button>
+      <button class="btn sm" id="out-all" title="Rhino, Houdini and GeoJSON in one go (the play being drawn is saved first)">All</button>
+      <button class="btn sm" id="out-rhino" title="A Rhino model (.3dm + Grasshopper script)">Rhino</button>
+      <button class="btn sm" id="out-houdini" title="A Houdini POP kit (its field), the scene built in the background">Houdini</button>
+      <button class="btn sm" id="out-geojson" title="The points, tracks (GeoJSON, EPSG:27700), camera path and Houdini curves">GeoJSON</button>
+      <button class="btn sm" id="out-video" title="A video of the pass replayed, from the view as it is now">Video</button>
+    </div>
+    <p class="pass-op mono" id="out-op" hidden></p>
   </section>
+  </div>
+  <div class="part fold" id="part-display" data-fold="display">
+  <h2 class="part-h label"><button class="fold-h" aria-expanded="false" aria-controls="display-body" title="How the scene looks: trails, ground, below the ground, what is shown, the look, the section (open / fold)">Display<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" stroke-width="1"/></svg></button></h2>
+  <div class="fold-body" id="display-body" hidden>
   <section>
     <h3 class="label">Trails</h3>
     <div class="opts" data-group="trails">
@@ -149,35 +173,39 @@
     <h3 class="label">Show</h3>
     <label class="check" title="The machine at rest: Live with the phone untouched (not the truth)"><input type="checkbox" data-layer="ref"> Reference</label>
     <label class="check" title="C: the gaps Live caused violet dashes, the footage's white; solid lines dimmed"><input type="checkbox" data-layer="cause"> Cause</label>
-    <label class="check"><input type="checkbox" data-layer="drag"> Drag grid</label>
+    <label class="check" title="A calm grid of ground points that shows how the ground is dragged as the camera turns"><input type="checkbox" data-layer="drag"> Drag grid</label>
     <label class="check" title="V: re-framed (the recording stays put, the violet frame moves over it) / glued / off"><input type="checkbox" data-layer="video" checked> Video plane</label>
-    <label class="check"><input type="checkbox" data-layer="cameras" checked> Cameras</label>
+    <label class="check" title="The cameras drawn in the scene: the start camera as a white ghost, each virtual camera in its tint"><input type="checkbox" data-layer="cameras" checked> Cameras</label>
   </section>
   <section>
     <h3 class="label">Look</h3>
     <div class="opts" data-group="look">
-      <button data-v="laptop">Laptop</button>
+      <button data-v="laptop" title="Thin lines for the laptop's screen">Laptop</button>
       <button data-v="projector" title="Thicker, brighter lines, a lifted ground">Projector</button>
     </div>
   </section>
   <section>
     <h3 class="label">Section <span class="key">S</span></h3>
-    <label class="check"><input type="checkbox" id="sec-on"> Cut</label>
+    <label class="check" title="A cutting plane through the ground, the tracks and the cameras (S)"><input type="checkbox" id="sec-on"> Cut</label>
     <div class="opts" data-group="section">
       <button data-v="along" title="Vertical, along the start view">Along</button>
       <button data-v="across" title="Vertical, across the start view">Across</button>
       <button data-v="horizontal" title="Horizontal at height h">Level</button>
     </div>
-    <label class="slider"><span class="label">Height</span><input type="range" id="sec-h" min="-3" max="12" step="0.1" value="1"><output id="sec-h-v" class="num">1.0 m</output></label>
-    <label class="check"><input type="checkbox" id="sec-slab"> Slab</label>
-    <label class="slider"><span class="label">Thick</span><input type="range" id="sec-t" min="0.5" max="40" step="0.5" value="6"><output id="sec-t-v" class="num">6.0 m</output></label>
-    <div class="row"><div class="opts" data-group="secmode"><button data-v="translate">Move</button><button data-v="rotate">Turn</button></div>
+    <label class="slider" title="The level cut's height above the ground"><span class="label">Height</span><input type="range" id="sec-h" min="-3" max="12" step="0.1" value="1"><output id="sec-h-v" class="num">1.0 m</output></label>
+    <label class="check" title="Two parallel planes: only what lies between them is kept"><input type="checkbox" id="sec-slab"> Slab</label>
+    <label class="slider" title="The slab's thickness"><span class="label">Thick</span><input type="range" id="sec-t" min="0.5" max="40" step="0.5" value="6"><output id="sec-t-v" class="num">6.0 m</output></label>
+    <div class="row"><div class="opts" data-group="secmode"><button data-v="translate" title="Drag the plane's handles to move it">Move</button><button data-v="rotate" title="Drag the plane's handles to turn it">Turn</button></div>
       <button class="btn sm" id="sec-flip" title="Keep the other side">Flip</button></div>
   </section>
-  <section id="help">
-    <h3 class="label">Help</h3>
+  </div>
+  </div>
+  <div class="part fold" id="part-help" data-fold="help">
+  <h2 class="part-h label"><button class="fold-h" aria-expanded="false" aria-controls="help" title="The keys and the mouse (open / fold)">Help<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" stroke-width="1"/></svg></button></h2>
+  <section class="fold-body" id="help" hidden>
     <p class="hint">Space play · ← → a frame (Shift: 10) · Tab the next camera · O focus · W whole scene · I solo · B video boxes · X clear its layer · Z zero · G / Shift+G gain · J smooth · M hold: turn the space (M M: level) · K stack · L saved passes · S section · C cause · U below the ground · V video · 1–4 views · H HUD · P panel · F full screen</p>
     <p class="hint">Mouse: right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move</p>
+    <p class="hint">A play is drawn, saved as a pass, and leaves a layer on each camera it drew; the layers together are the collage.</p>
   </section>
   </div>
 </aside>

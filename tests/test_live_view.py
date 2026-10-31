@@ -5,6 +5,7 @@ them), the hub link (pose.js) with a fake socket and against the real LiveHub wi
 
 import json
 import queue
+import re
 import shutil
 import socket
 import ssl
@@ -368,6 +369,14 @@ def test_recorded_pass_saved_as_bytes_rendered_and_exported(server, project, app
     monkeypatch.setattr(links, "running_apps", lambda: {"rhino": False, "houdini": False})
     st, _, b = http(url, hdr, envelope({"camera": "demo", "layers": [lay]}, {"1_demo.bin": bytes(16 * n)}), "POST")
     assert st == 200 and Path(json.loads(b)["dir"]).name.endswith("-demo")
+    # Output's single formats (30 Oct): GeoJSON alone, Rhino alone; only the app asked for is checked
+    monkeypatch.setattr(links, "running_apps", lambda: {"rhino": False, "houdini": True})
+    st, _, b = http(url, hdr, envelope({"layers": [lay], "rhino": False, "houdini": False}, {"1_demo.bin": bytes(16 * n)}), "POST")
+    assert st == 200 and started[-1][1] == ["live-layers-export", json.loads(b)["dir"]]
+    st, _, b = http(url, hdr, envelope({"layers": [lay], "houdini": False}, {"1_demo.bin": bytes(16 * n)}), "POST")
+    assert st == 200 and started[-1][1][2:] == ["--rhino"] and started[-1][2].endswith("· rhino")
+    assert http(url, hdr, envelope({"layers": [lay], "rhino": False}, {"1_demo.bin": bytes(16 * n)}), "POST")[0] == 409
+    monkeypatch.setattr(links, "running_apps", lambda: {"rhino": False, "houdini": False})
     assert http(url, hdr, envelope({"layers": [lay]}, {"1_demo.bin": bytes(16 * n - 16)}), "POST")[0] == 400   # not its package's
     assert http(url, hdr, envelope({"layers": [{**lay, "camera": "other"}]}, {"1_demo.bin": bytes(16 * n)}), "POST")[0] == 400
     shutil.rmtree(run / "live" / "exports")
@@ -864,7 +873,9 @@ def test_passes_menu_one_camera_alone_and_the_collage():
     for the mouse). Sandbox / collage (29 Oct c): a camera out of play with a layer stays frozen
     (parked); X or its menu clears its layer; collageLayers() gives the collage as data (09).
     Cameras vs Scene (29 Oct (3)): the panel's two parts; a camera stays until removed (its menu;
-    a phone holding it is released through the hub)."""
+    a phone holding it is released through the hub). 30 Oct, after the phone test: the panel's
+    parts are Players, Cameras, Drawing, Output, Display (folded) and Help (folded); the site in
+    the top bar; the camera menu (⋯) is the selected camera's block (next test)."""
     page = (LIVE / "live.html").read_text(encoding="utf-8")
     panel = page.split('id="panel"')[1].split("</aside>")[0]
     menu = page.split('id="pass-menu"')[1].split("</section>")[0]
@@ -879,16 +890,74 @@ def test_passes_menu_one_camera_alone_and_the_collage():
     assert 'k === "x" || k === "X"' in js and "function clearCamera(name)" in js and "function park(s)" in js
     assert "function collageLayers()" in js and all(f in js.split("window.live = ")[1] for f in ("collageLayers", "clearCamera", "setSolo"))
     assert "keepLength" not in (LIVE / "timeline.js").read_text(encoding="utf-8")       # the clock: the cameras in play
-    assert ".spot-m" in (LIVE / "live.css").read_text(encoding="utf-8")
-    # 29 Oct (3), Cameras vs Scene: the panel in two parts; each camera's menu; cameras stay until removed
-    cams, scene = panel.split('id="part-scene"')
-    assert 'id="spot-list"' in cams and 'id="cam-menu"' in cams and 'id="phone"' in cams
-    assert all(f'id="{i}"' in cams for i in ("cm-focus", "cm-clear", "cm-remove", "cm-sheet", "cm-exports", "zero", "gain", "scale"))
-    assert all(f'id="{i}"' in scene for i in ("sites", "passes", "pass-menu-btn", "collage-sheet", "help"))
-    assert all(f'data-group="{g}"' in scene for g in ("trails", "ground", "under", "look", "section"))
+    # 30 Oct: the panel's parts, in this order; each holds what it says
+    parts = panel.split('<div class="part')[1:]
+    assert [p.split('id="')[1].split('"')[0] for p in parts] == ["part-players", "part-cameras", "part-drawing", "part-output",
+                                                                  "part-display", "part-help"]
+    players, cams, drawing, output, display, helps = parts
+    assert all(f'id="{i}"' in players for i in ("phone", "qr", "new-code", "holders", "mouse", "zero", "gain", "scale", "cm-phone"))
+    assert 'id="spot-list"' in cams and 'id="cam-sel"' in cams and 'id="cam-menu"' not in page
+    assert all(f'id="{i}"' in cams for i in ("cm-focus", "cm-solo", "cm-video", "cm-smooth", "cm-clear", "cm-remove"))
+    assert all(f'id="{i}"' in drawing for i in ("passes", "pass-undo", "pass-clear", "pass-stack", "pass-menu-btn"))
+    assert all(f'id="out-{i}"' in output for i in ("scope", "pass", "sheet", "all", "rhino", "houdini", "geojson", "video", "op"))
+    assert all(f'data-group="{g}"' in display for g in ("trails", "ground", "under", "look", "section"))
+    assert 'id="help"' in helps and "the layers together are the collage" in helps
+    assert all('data-fold="' in p and 'class="fold-h" aria-expanded="false"' in p for p in (display, helps))   # folded
+    for gone in ("cm-sheet", "cm-exports", "collage-sheet", "collage-export", "cm-close", 'id="sites"'):
+        assert gone not in page and gone not in js, gone
+    assert ".spot-m" not in (LIVE / "live.css").read_text(encoding="utf-8") and "\\u22ef" not in js.split("function syncSpots()")[1].split("\n}\n")[0]
+    # the site: the top bar's menu (the sites, Realtime, the recordings); Whole scene beside the views
+    bar = page.split('id="bar"')[1].split("</header>")[0]
+    assert 'id="site-btn"' in bar and 'id="clip-name"' in bar and 'id="whole-scene"' in bar
+    assert 'id="site-list"' in page.split('id="site-menu"')[1].split("</section>")[0]
+    ss = js.split("function syncSites()")[1].split("\nfunction toggleSiteMenu")[0]
+    assert 'item("Realtime", "now"' in ss and 'item("Recordings", "recorder"' in ss
+    assert 'localStorage.setItem("motus-live-site", L.site)' in ss                   # the start menu's Live
+    keys = js.split('window.addEventListener("keydown"')[-1].split("window.addEventListener")[0]
+    assert 'if (e.key === "Escape") { toggleSiteMenu(false);' in keys
+    # back: to the run Live was opened from, else the start menu
+    assert '$("#back").textContent = fromRun ? "\\u2190 Run" : "\\u2190 Menu";' in js
     assert 'type: "release", spot: name' in js and "function removeCamera(name)" in js and "function markCamera(s)" in js
     assert "sendMessage(m)" in (LIVE / "pose.js").read_text(encoding="utf-8")
     assert (LIVE / "panels.js").read_text(encoding="utf-8").count("this.onFocus(e.spot, ev)") == 1
+
+
+def test_start_menu_and_hover_explanations():
+    """30 Oct, the user: "a motus live button right when i start, a cinematic main menu" and "each
+    button within live, when i hover long over it, explain shortly what it does". The start page
+    opens on the menu (not on the way back to a run); Live opens the site used last; the tracks
+    behind it are a real package's (the speed ramp from projection.js); every control in Live has
+    a text, shown by tips.js after a moment (the browser's own tooltip never as well)."""
+    web = LIVE.parent
+    index = (web / "index.html").read_text(encoding="utf-8")
+    head = index.split("</head>")[0]
+    assert '<link rel="stylesheet" href="/static/intro.css">' in head
+    assert '!sessionStorage.getItem("gt.run") && location.hash !== "#workspace"' in head   # no flash of the workspace
+    menu = index.split('id="intro"')[1].split('<script')[0]
+    assert [m for m in ("live", "realtime", "recordings", "workspace", "quit") if f'data-go="{m}"' in menu] == \
+        ["live", "realtime", "recordings", "workspace", "quit"]
+    assert '<span class="t">motus live</span>' in menu and 'id="intro-site"' in menu and 'id="intro-gl"' in menu
+    assert '<script type="module" src="/static/intro.js"></script>' in index and "data-intro" in index.split('id="intro"')[0]
+    js = (web / "intro.js").read_text(encoding="utf-8")
+    assert 'import { rampColor } from "/static/live/projection.js";' in js
+    assert "leave(`/live?site=${enc(e.site)}`)" in js and 'leave("/live?realtime=1")' in js and 'leave("/live/realtime")' in js
+    assert 'localStorage.getItem("motus-live-site")' in js and 'sessionStorage.removeItem("gt.run")' in js
+    assert 'history.replaceState(null, "", "#workspace")' in js and "cancelAnimationFrame(raf);" in js.split("function hide()")[1]
+    assert "/live/pkg/${f}?run=${run}" in js and "Math.random" not in js            # a real package, nothing invented
+    assert "← Menu" in (LIVE / "realtime.html").read_text(encoding="utf-8")
+    # hover explanations: tips.js started first; every control in the page has a text
+    live_js = (LIVE / "live.js").read_text(encoding="utf-8")
+    assert 'import { startTips } from "./tips.js";' in live_js and "(async function start() {\n  startTips();" in live_js
+    tips = (LIVE / "tips.js").read_text(encoding="utf-8")
+    assert 'attributeFilter: ["title"]' in tips and 'el.removeAttribute("title");' in tips and "const DELAY = 650;" in tips
+    page = (LIVE / "live.html").read_text(encoding="utf-8")
+    body = page.split("<body>")[1]
+    for tag in re.findall(r"<(?:button|label|select)\b[^>]*>", body):
+        if 'class="check"' in tag or 'class="slider"' in tag or "<button" in tag or "<select" in tag:
+            assert "title=" in tag, tag
+    tl = (LIVE / "timeline.js").read_text(encoding="utf-8")
+    assert 'aria-label="Time" title="' in tl and '<label class="t-rate" title="' in tl
+    assert 'e.el.title = "This player' in (LIVE / "panels.js").read_text(encoding="utf-8")
 
 
 def test_focus_flies_the_view_whole_scene_and_solo():
@@ -897,10 +966,11 @@ def test_focus_flies_the_view_whole_scene_and_solo():
     stay visible; Whole scene (W, a button under the cameras) flies back out to the collage; the old
     focus (the others hidden) is Solo (I, its menu), the same again: all."""
     page = (LIVE / "live.html").read_text(encoding="utf-8")
-    cams = page.split('id="part-cameras"')[1].split('id="part-scene"')[0]
-    assert all(f'id="{i}"' in cams for i in ("cm-focus", "cm-solo", "whole-scene"))
+    cams = page.split('id="part-cameras"')[1].split('id="part-drawing"')[0]
+    bar = page.split('id="bar"')[1].split("</header>")[0]                          # 30 Oct: in the top bar
+    assert all(f'id="{i}"' in cams for i in ("cm-focus", "cm-solo")) and 'id="whole-scene"' in bar
     assert 'Focus <span class="key">O</span>' in cams and 'Solo <span class="key">I</span>' in cams
-    assert 'Whole scene <span class="key">W</span>' in cams
+    assert 'Whole scene <span class="key">W</span>' in bar
     assert "O focus · W whole scene · I solo" in page.split('id="help"')[1]
     js = (LIVE / "live.js").read_text(encoding="utf-8")
     keys = js.split('window.addEventListener("keydown"')[-1].split("window.addEventListener")[0]
@@ -919,11 +989,11 @@ def test_focus_flies_the_view_whole_scene_and_solo():
     assert "const toggleFocus = (s) => setFramed(L && L.framed === s ? null : s);" in fr
     assert "const wholeScene = () => setFramed(null);" in fr
     assert "soloHide" not in fr                                                       # Focus hides nothing
-    # the triggers: Shift+click in the list and on a panel, the menu's buttons
-    assert "if (e.shiftKey) toggleFocus(r.s); else markCamera(r.s);" in js
+    # the triggers: Shift+click in the list (it selects the camera too) and on a panel, the selected camera's buttons
+    assert "if (e.shiftKey) { toggleFocus(r.s); selectCamera(r.s.name); } else markCamera(r.s);" in js
     assert "if (e && e.shiftKey) toggleFocus(s); else setFocus(s);" in js
-    assert '$("#cm-focus").onclick = () => { const s = menuSpot(); if (s) toggleFocus(s); };' in js
-    assert '$("#cm-solo").onclick = () => { const s = menuSpot(); if (s) toggleSolo(s); };' in js
+    assert '$("#cm-focus").onclick = () => { const s = selSpot(); if (s) toggleFocus(s); };' in js
+    assert '$("#cm-solo").onclick = () => { const s = selSpot(); if (s) toggleSolo(s); };' in js
     assert '$("#whole-scene").onclick = () => wholeScene();' in js
     assert "setFramed" in js.split("window.live = ")[1]
     # a camera gone: framed no more
@@ -934,7 +1004,7 @@ def test_video_boxes_only_on_request():
     """29 Oct (5), the user: the players' video boxes (panels) no longer open when a phone takes a
     camera; none by default; a camera's menu toggles its box (Video), B all the cameras in play."""
     page = (LIVE / "live.html").read_text(encoding="utf-8")
-    cams = page.split('id="part-cameras"')[1].split('id="part-scene"')[0]
+    cams = page.split('id="part-cameras"')[1].split('id="part-drawing"')[0]
     assert 'id="cm-video"' in cams and 'Video <span class="key">B</span>' in cams
     assert "B video boxes" in page.split('id="help"')[1]
     js = (LIVE / "live.js").read_text(encoding="utf-8")
@@ -944,7 +1014,7 @@ def test_video_boxes_only_on_request():
     assert "L.boxes.delete(s.name);" in js.split("function removeSpot(s)")[1].split("\n}\n")[0]   # leaving play: closed
     keys = js.split('window.addEventListener("keydown"')[-1].split("window.addEventListener")[0]
     assert keys.count('k === "b"') == 1 and 'k === "b" || k === "B") toggleBoxes()' in keys
-    assert '$("#cm-video").onclick = () => { const s = menuSpot(); if (s) toggleBox(s); };' in js
+    assert '$("#cm-video").onclick = () => { const s = selSpot(); if (s) toggleBox(s); };' in js
     assert "toggleBoxes" in js.split("window.live = ")[1]
 
 
@@ -1364,17 +1434,18 @@ def test_smooth_switch_in_the_camera_menu_and_key_j():
     """Smooth: a switch in each camera's menu (off by default), J on the marked camera (a free key:
     no binding taken over), in the help; the view records it and shows it per camera."""
     page = (LIVE / "live.html").read_text(encoding="utf-8")
-    menu = page.split('id="cam-menu"')[1].split("</section>")[0]
+    menu = page.split('id="cam-sel"')[1].split("</section>")[0]
     sw = menu.split('id="cm-smooth"')[0].rsplit("<input", 1)[1] + menu.split('id="cm-smooth"')[1].split(">")[0]
     assert 'type="checkbox"' in sw and "checked" not in sw and 'Smooth <span class="key">J</span>' in menu
-    assert menu.index('id="cm-exports"') < menu.index('id="cm-smooth"') < menu.index('id="cm-mouse"')   # for phones too
+    assert menu.index('id="cm-video"') < menu.index('id="cm-smooth"') < menu.index('id="cm-clear"')     # for phones too
+    assert 'id="cm-mouse"' not in menu                                                # 30 Oct: the mouse's: Players
     assert "J smooth" in page.split('id="help"')[1]
     js = (LIVE / "live.js").read_text(encoding="utf-8")
     keys = js.split('window.addEventListener("keydown"')[-1].split("window.addEventListener")[0]
     assert keys.count('k === "j"') == 1 and 'k === "j" || k === "J") setSmooth(!L.focus.inp.smooth)' in keys
     for k in "zgGkKlLxXsShHpPfFvVmMcCuUbBiIoOwW":
         assert keys.count(f'k === "{k}"') == 1, k
-    assert '$("#cm-smooth").onchange = (e) => { const s = menuSpot(); if (s) setSmooth(e.target.checked, s);' in js
+    assert '$("#cm-smooth").onchange = (e) => { const s = selSpot(); if (s) setSmooth(e.target.checked, s);' in js
     assert '$("#cm-smooth").checked = s.inp.smooth;' in js and 'recAt("smooth", s, !!on)' in js
     assert "(inp.smooth ? SMOOTH : 0)" in js and "inp.tick(clock());" in js and "setSmooth" in js.split("window.live = ")[1]
     assert "export const SMOOTH = 64;" in (LIVE / "record.js").read_text(encoding="utf-8")

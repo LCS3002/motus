@@ -77,6 +77,7 @@ import { PoseLink, MouseController, PoseInput, cameraDelta, matToQuat, headMatri
 import { TINTS, hexRGB, freeTint, offsetFrom, findCamera } from "./spots.js";
 import { packPass, unpackPass, padPass, fitsPackage, localIso, passLabel, mergeSnaps } from "./passes.js";
 import { Panels } from "./panels.js";
+import { startTips } from "./tips.js";
 import { Recorder, machineCounts, CHANGED, HELD, LEVELLING, TILTED, PERFORMED, JOINED, SMOOTH, PLAYING, AT_END } from "./record.js";
 import { Replay, readRecording, compareDrawings, rowCamera } from "./replay.js";
 
@@ -594,7 +595,9 @@ function setFocus(s, notify = true) {
   if (S.trails === "whole") for (const x of L.spots) spotTrails(x);
   document.documentElement.style.setProperty("--spot-tint", s.tint);
   $("#h-clip").textContent = `${s.name} · ${s.cam.clip}/${s.cam.run_name}`;
-  if (!menuSpot()) { showGain(s.inp.gain); showScale(s.inp.scale); }
+  showGain(s.inp.gain);
+  showScale(s.inp.scale);
+  sel.name = s.name;                             // the selected camera follows the marked one
   syncSpots();
   if (L.locked) setView(L.locked === "start" ? 3 : 4);
   if (notify) { flash(`Camera: ${s.name}`); syncHud(); publishState(); }
@@ -856,7 +859,7 @@ function toggleBox(s) {
   else if (canBox(s)) L.boxes.add(s.name);
   else { flash(`${s.name}: no video box (only a camera a phone holds, with others in play)`); return; }
   refreshPlayers();
-  syncCamMenu();
+  syncCamSel();
 }
 
 /** B: the video boxes of every camera in play a phone holds, shown (any closed) / hidden. */
@@ -867,7 +870,7 @@ function toggleBoxes() {
   const show = can.some((s) => !L.boxes.has(s.name));
   for (const s of can) { if (show) L.boxes.add(s.name); else L.boxes.delete(s.name); }
   refreshPlayers();
-  syncCamMenu();
+  syncCamSel();
   flash(show ? "Video boxes: shown · B: hidden" : "Video boxes: hidden");
 }
 
@@ -1709,44 +1712,52 @@ async function collageSheet(name = null) {
   const pick = () => collageLayers().filter((c) => !name || c.camera === name);
   const unsaved = (cs) => cs.some((c) => c.layers.some((l) => !l.id));
   collageBusy = true;
-  syncCamMenu();
+  outSay(`${what} · starting`);
+  syncOutput();
   try {
     let cs = pick();
     if (!cs.length) throw new Error(name ? "this camera has no layer" : "no layer in the view");
     if (unsaved(cs)) {                            // the play being drawn (or one still saving): saved first
       flash(`${what} · saving the play first`);
+      outSay(`${what} · saving the play first`);
       if (!R && P.cur && hasDrawing(P.cur)) savePass(P.cur);
       await P.saving;
       cs = pick();
       if (unsaved(cs)) throw new Error("a play of it is not saved (saving off, or it failed)");
     }
     flash(`${what} · rendering the view`);
+    outSay(`${what} · rendering the view`);
     const png = await collageShot(cs.map((c) => c.camera), { width: SHEET_PX[0], height: SHEET_PX[1] });
     if (!png) throw new Error("the render gave no image");
     const layers = cs.flatMap((c) => c.layers.map((l) => ({ run: l.run, id: l.id, camera: l.camera, key: l.key, kind: l.kind, stacked: l.stacked })));
     flash(`${what} · drawing it`);
+    outSay(`${what} · drawing it`);
     const r = await postFiles("/api/live/sheet", { action: "collage", camera: name || undefined, site: L.site, layers },
                               { "view.png": await png.arrayBuffer() });
     const pdf = Object.values(r.files || {}).map((x) => String(x.pdf).split(/[\\/]/).pop()).join(" · ");
     flash(`${what} → ${shortPath(r.dir)} (${pdf} + PNG)`);
     note(`${what}: ${r.dir}`);
-  } catch (e) { note(`${what}: ${e.message}`); flash(`${what} · ${e.message}`); }
-  finally { collageBusy = false; syncCamMenu(); }
+    outSay(`${what} → ${shortPath(r.dir)} (${pdf} + PNG)`, false, r.dir);
+  } catch (e) { note(`${what}: ${e.message}`); flash(`${what} · ${e.message}`); outSay(`${what} · ${e.message}`, true); }
+  finally { collageBusy = false; syncOutput(); }
 }
 
 /* ---- the collage's exports and a camera's (05, 29 Oct (3)): the layers (all, or one camera's) as
-   the view shows them (a layer can be part of a pass) to Rhino, Houdini and GeoJSON in one go, by a
-   job of the app (groundtrack live-layers-export) into <run of the first layer>/live/exports/
-   <stamp>-<collage | camera id>/ with layers.json. The play being drawn is saved first, so its layer
-   names its pass. Rhino or Houdini open: asked first. */
+   the view shows them (a layer can be part of a pass) to Rhino, Houdini and GeoJSON in one go (fmt
+   "all"; 30 Oct: or one of them, GeoJSON with the files always), by a job of the app (groundtrack
+   live-layers-export) into <run of the first layer>/live/exports/<stamp>-<collage | camera id>/
+   with layers.json. The play being drawn is saved first, so its layer names its pass. Rhino or
+   Houdini open (the ones asked for): asked first. */
 let exportBusy = false;
+const FORMATS = { all: "Rhino, Houdini, GeoJSON", rhino: "Rhino", houdini: "Houdini", geojson: "GeoJSON" };
 
-async function collageExport(name = null, force = false) {
+async function collageExport(name = null, fmt = "all", force = false) {
   if (!L || exportBusy) return;
-  const what = name ? `${name} · export` : "Collage export";
+  const what = `${name ? `${name} · export` : "Collage export"}${fmt === "all" ? "" : ` · ${FORMATS[fmt]}`}`;
   const pick = () => collageLayers().filter((c) => !name || c.camera === name);
   exportBusy = true;
-  syncCamMenu();
+  outSay(`${what} · starting`);
+  syncOutput();
   try {
     let cs = pick();
     if (!cs.length) throw new Error(name ? "this camera has no layer" : "no layer in the view");
@@ -1765,12 +1776,15 @@ async function collageExport(name = null, force = false) {
     }
     note(`${what} · ${layers.length} layer${layers.length === 1 ? "" : "s"} · starting`);
     let d;
-    try { d = await postFiles("/api/live/export/layers", { camera: name || undefined, site: L.site, layers, force }, files); }
+    const rhino = fmt === "all" || fmt === "rhino", houdini = fmt === "all" || fmt === "houdini";
+    try { d = await postFiles("/api/live/export/layers", { camera: name || undefined, site: L.site, layers, rhino, houdini, force }, files); }
     catch (e) {
       if (!e.confirm) throw e;
       note("");
       exportBusy = false;
-      if (confirm(e.message)) return await collageExport(name, true);
+      outSay("");
+      if (confirm(e.message)) return await collageExport(name, fmt, true);
+      syncOutput();
       return;
     }
     let j, n = 0;
@@ -1779,13 +1793,15 @@ async function collageExport(name = null, force = false) {
       n += (j.lines || []).length;
       if (j.status !== "running") break;
       note(`${what} · ${(j.last || "running").slice(0, 120)}`);
+      outSay(`${what} · ${(j.last || "running").slice(0, 120)}`);
       await new Promise((res) => setTimeout(res, 700));
     }
     if (j.returncode !== 0) throw new Error((j.last || `exit ${j.returncode}`).slice(0, 200));
-    flash(`${what} → ${shortPath(d.dir)} (Rhino, Houdini, GeoJSON)`);
+    flash(`${what} → ${shortPath(d.dir)} (${FORMATS[fmt]})`);
     note(`${what}: ${d.dir}`);
-  } catch (e) { note(`${what}: ${e.message}`); flash(`${what} · ${e.message}`); }
-  finally { exportBusy = false; syncCamMenu(); }
+    outSay(`${what} → ${shortPath(d.dir)} (${FORMATS[fmt]})`, false, d.dir);
+  } catch (e) { note(`${what}: ${e.message}`); flash(`${what} · ${e.message}`); outSay(`${what} · ${e.message}`, true); }
+  finally { exportBusy = false; syncOutput(); }
 }
 
 // ---------------------------------------------------------------------------- the look
@@ -1948,7 +1964,7 @@ function setSmooth(on, s = L && L.focus) {
     if (!!on !== s.inp.smooth) recAt("smooth", s, !!on);
     if (s.inp.setSmooth(on, clock())) flash(`${L.spots.length > 1 ? s.name + " · " : ""}Smooth: ${s.inp.smooth ? "on" : "off"}`);
   }
-  syncCamMenu();
+  syncCamSel();
 }
 
 /* the phone's remote (through the hub): the same actions as the keys. player: the phone's number,
@@ -2087,129 +2103,147 @@ function syncTitle() {
   document.title = `motus · Live · ${L.title}`;
 }
 
-/* The cameras in the scene (and loading): each with its tint and who holds it, the focus marked; a
-   click focuses it. Below: how many of the site's cameras are in. */
+/* The cameras in the scene (and loading): each with its tint and who holds it, the marked one
+   framed. A click selects it and marks it; Shift+click selects it and focuses it (a frozen camera
+   stays frozen). Below: how many of the site's cameras are in, then the selected camera's block. */
 function syncSpots() {
   const el = $("#spot-list");
-  if (!L) { const m = $("#cam-menu"); m.hidden = true; el.after(m); el.innerHTML = ""; return; }
+  if (!L) { el.innerHTML = ""; delete el.dataset.key; $("#cam-sel").hidden = true; return; }
   const loads = [...L.loading.keys(), ...L.ghosts].filter((n) => !spotOf(n) && !parkedOf(n));
   const rows = [...L.spots.map((s) => ({ s, name: s.name, tint: s.tint })),
                 ...L.parked.map((s) => ({ s, name: s.name, tint: s.tint, parked: true })),
                 ...[...new Set(loads)].map((n) => ({ s: null, name: n, tint: TINTS[L.tints.get(n) || 0] }))];
   const key = rows.map((r) => `${r.name}:${r.s ? (r.parked ? 2 : 1) : 0}`).join("|");
-  const menu = $("#cam-menu");
   if (el.dataset.key !== key) {
     el.dataset.key = key;
-    menu.remove();                                 // kept: it goes back under its camera's row
     el.innerHTML = "";
     for (const r of rows) {
-      const row = document.createElement("div"), b = document.createElement("button"), m = document.createElement("button");
+      const row = document.createElement("div"), b = document.createElement("button");
       row.className = "spot-row";
       row.dataset.name = r.name;
       b.className = "spot";
       b.style.setProperty("--tint", r.tint);
       b.innerHTML = `<span class="sw"></span><span class="nm"></span><span class="who label"></span>`;
       b.querySelector(".nm").textContent = r.name;
-      if (r.s) b.onclick = (e) => { if (e.shiftKey) toggleFocus(r.s); else markCamera(r.s); };
+      if (r.s) b.onclick = (e) => { if (e.shiftKey) { toggleFocus(r.s); selectCamera(r.s.name); } else markCamera(r.s); };
       else b.disabled = true;
-      b.title = "Click: the marked camera (the mouse and keys act on it; one no phone holds is the mouse's) · Shift+click or O: focus (the view frames it / the whole scene, W)";
-      m.className = "spot-m";
-      m.textContent = "\u22ef";
-      m.title = "Its menu: focus, solo, video box, clear its layer, remove, smooth, zero / gain";
-      m.setAttribute("aria-label", `${r.name}: its menu`);
-      m.setAttribute("aria-controls", "cam-menu");
-      m.disabled = !r.s;
-      m.onclick = () => openCamMenu(camMenu.name === r.name ? null : r.name);
-      row.append(b, m);
+      b.title = "Click: select it and mark it (the mouse and keys act on it; one no phone holds is the mouse's) · Shift+click or O: select it and focus (the view frames it / the whole scene, W)";
+      row.append(b);
       el.appendChild(row);
     }
   }
-  const at = rows.findIndex((r) => r.s && r.name === camMenu.name);
-  if (at < 0) { camMenu.name = null; menu.hidden = true; }
+  if (!selSpot()) sel.name = L.focus ? L.focus.name : null;
   const rowEls = el.querySelectorAll(".spot-row");
-  if (camMenu.name && menu.previousElementSibling !== rowEls[at]) rowEls[at].after(menu);
-  else if (!camMenu.name && !menu.isConnected) el.after(menu);
   rows.forEach((r, k) => {
-    const row = rowEls[k], b = row.firstChild;
-    row.lastChild.setAttribute("aria-expanded", String(r.name === camMenu.name));
+    const b = rowEls[k].firstChild;
     b.setAttribute("aria-pressed", String(!!r.s && r.s === L.focus));
+    b.classList.toggle("selected", !!r.s && r.name === sel.name);
     b.classList.toggle("solo", !!r.s && r.s === L.solo);
     b.classList.toggle("parked", !!r.parked);
-    b.querySelector(".who").textContent = !r.s ? "loading" : (r.s === L.solo ? "alone · " : "") +
-      (r.parked ? "frozen" : r.s.player != null ? `P${r.s.player}` : R && R.byName.has(r.s.name) ? "replay" : "mouse");
+    b.querySelector(".who").textContent = !r.s ? "loading" : (r.s === L.solo ? "alone · " : "") + whoOf(r.s);
   });
-  syncCamMenu();
+  syncCamSel();
   const N = L.cams.length, F = L.parked.length;
   $("#spot-sum").textContent = N > 1 ? `${L.spots.length + F} of ${N} cameras in the scene (${L.spots.length} in play` + (F ? `, ${F} frozen)` : ")") +
                                        " · a phone picks one"
                                      : "The site's only camera";
 }
 
-/** The sites with Live packages: one button each, the open one marked. */
-/* A camera's menu (its row's \u22ef, under the row): focus, solo, clear its layer, remove, its sheet and
-   exports (to come), and zero / gain / scale for the mouse while no phone holds it. */
-const camMenu = { name: null };
-const menuSpot = () => (camMenu.name && (spotOf(camMenu.name) || parkedOf(camMenu.name))) || null;
-/** The camera the sliders show: the open menu's, else the marked one. */
-const shownSpot = () => menuSpot() || (L && L.focus);
+/** Who moves camera s: a phone (P1..), the mouse, a replay, or nobody (frozen). */
+const whoOf = (s) => (s.parked ? "frozen" : s.player != null ? `P${s.player}` : R && R.byName.has(s.name) ? "replay" : "mouse");
 
-function openCamMenu(name) {
-  camMenu.name = name;
-  $("#cam-menu").hidden = !name;
+/* The selected camera (30 Oct; was each camera's menu, its row's ⋯): the panel's camera block
+   and Output's "Camera" act on it. It follows the marked camera (a click, Tab, a phone's panel);
+   Shift+click selects a camera without marking it (a frozen one stays frozen). */
+const sel = { name: null };
+const selSpot = () => (L && sel.name && (spotOf(sel.name) || parkedOf(sel.name))) || null;
+/** The camera the mouse's sliders show and set: the marked one (the mouse's, unless a phone holds it). */
+const shownSpot = () => L && L.focus;
+
+function selectCamera(name) {
+  sel.name = name;
   syncSpots();
-  const s = shownSpot();
-  if (s) { showGain(s.inp.gain); showScale(s.inp.scale); }
 }
 
-function syncCamMenu() {
-  $("#collage-sheet").disabled = collageBusy;
-  $("#collage-export").disabled = exportBusy;
-  const s = menuSpot();
+function syncCamSel() {
+  const s = selSpot();
+  $("#cam-sel").hidden = !s;
+  syncMouse();
+  syncOutput();
   if (!s) return;
-  const holder = heldBy(s.name);
-  $("#cm-name").textContent = `${s.name} · ${s.parked ? "frozen" : holder ? `P${holder.player}` : R && R.byName.has(s.name) ? "replay" : "mouse"}`;
+  $("#cm-name").textContent = `${s.name} · ${whoOf(s)}`;
   $("#cm-focus").setAttribute("aria-pressed", String(L.framed === s));
   $("#cm-solo").setAttribute("aria-pressed", String(L.solo === s));
   $("#cm-video").setAttribute("aria-pressed", String(L.boxes.has(s.name) && canBox(s)));
   $("#cm-video").disabled = !canBox(s);
-  $("#cm-mouse").hidden = !!holder;
-  $("#cm-phone").hidden = !holder;
-  $("#cm-phone").textContent = holder ? `P${holder.player} holds it: zero, gain and scale on its phone` : "";
-  $("#cm-sheet").disabled = collageBusy || !hasSheet(s);
-  $("#cm-exports").disabled = exportBusy || !hasSheet(s);
   $("#cm-smooth").checked = s.inp.smooth;
   $("#cm-smooth").disabled = !!(R && R.spots.has(s));        // a replayed camera follows its recording
 }
 
+/* Players: who holds which camera (a line per phone), and the mouse's controls for the marked
+   camera unless a phone holds it (then they are on its phone). */
+function syncMouse() {
+  const s = L && L.focus, holder = s && heldBy(s.name);
+  $("#mouse-cam").textContent = !s ? "" : holder ? "· no camera" : `· ${s.name}`;
+  $("#cm-mouse").hidden = !s || !!holder;
+  $("#cm-phone").hidden = !holder;
+  $("#cm-phone").textContent = holder ? `The marked camera, ${s.name}, is P${holder.player}'s: zero, gain and scale on its phone. Click a camera no phone holds to move it with the mouse.` : "";
+  const el = $("#holders");
+  const lines = !L ? [] : L.players.filter((p) => p.spot && L.released.get(p.spot) !== p.player)
+    .map((p) => [`P${p.player}`, p.spot, (spotOf(p.spot) || {}).tint]);
+  const key = lines.map((x) => x.join(":")).join("|");
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.innerHTML = "";
+  for (const [who, cam, tint] of lines) {
+    const row = document.createElement("span");
+    row.innerHTML = `<b></b><i></i>`;
+    row.firstChild.textContent = who;
+    row.lastChild.textContent = cam;
+    if (tint) row.lastChild.style.setProperty("--tint", tint);
+    el.appendChild(row);
+  }
+}
+
+/* The site menu (the top bar's site name, 30 Oct; was a section of the panel): the sites with Live
+   packages, the open one marked; Realtime; the recordings (the realtime page). */
 function syncSites() {
   const el = $("#site-list");
   el.innerHTML = "";
-  for (const e of sites) {
+  const item = (name, n, current, title, onclick) => {
     const b = document.createElement("button");
-    b.dataset.v = e.site;
-    b.textContent = `${e.title} · ${e.cameras}`;
-    b.title = `${e.title}: ${e.cameras} camera${e.cameras === 1 ? "" : "s"}; starts on ${e.start_id}` +
-              (e.rmse != null ? ` (the best calibrated, ${e.rmse} m)` : "") + ", or the one used last";
-    b.setAttribute("aria-pressed", String(!REALTIME && !!L && e.site === L.site));
-    // (from realtime: the site's own page, which turns the mode off)
-    b.onclick = () => { if (REALTIME) leaveRealtime(`/live?site=${enc(e.site)}`); else switchSite(e.site); };
+    b.setAttribute("role", "menuitem");
+    b.innerHTML = `<span class="dot"></span><span class="t"></span><span class="n"></span>`;
+    b.querySelector(".t").textContent = name;
+    b.querySelector(".n").textContent = n;
+    b.setAttribute("aria-current", String(current));
+    b.title = title;
+    b.onclick = () => { toggleSiteMenu(false); onclick(); };
     el.appendChild(b);
-  }
+  };
+  for (const e of sites)
+    item(e.title, `${e.cameras} camera${e.cameras === 1 ? "" : "s"}`, !REALTIME && !!L && e.site === L.site,
+         `${e.title}: starts on ${e.start_id}` + (e.rmse != null ? ` (the best calibrated, ${e.rmse} m)` : "") + ", or the one used last",
+         // (from realtime: the site's own page, which turns the mode off)
+         () => { if (REALTIME) leaveRealtime(`/live?site=${enc(e.site)}`); else switchSite(e.site); });
+  el.appendChild(document.createElement("hr"));
   // realtime (plans/live_controller/10): one phone films, this laptop tracks and draws it now
-  const rt = document.createElement("button");
-  rt.textContent = "Realtime · now";
-  rt.title = "One phone films, this laptop tracks it and draws it here as it comes; the other phones turn its camera";
-  rt.setAttribute("aria-pressed", String(REALTIME));
-  rt.onclick = () => { if (!REALTIME) location.href = "/live?realtime=1"; };
-  el.appendChild(rt);
-  if (REALTIME) {                                 // the recorder's frame size, the recordings
-    const more = document.createElement("button");
-    more.textContent = "Recorder · recordings";
-    more.title = "The realtime page: the recorder's frame size (1080p / 720p) and the saved recordings";
-    more.onclick = () => leaveRealtime("/live/realtime");
-    el.appendChild(more);
+  item("Realtime", "now", REALTIME, "One phone films, this laptop tracks it and draws it here as it comes; the other phones turn its camera",
+       () => { if (!REALTIME) location.href = "/live?realtime=1"; });
+  item("Recordings", "recorder", false, "The realtime page: the recorder's frame size (1080p / 720p) and the saved recordings",
+       () => { if (REALTIME) leaveRealtime("/live/realtime"); else location.href = "/live/realtime"; });
+  if (REALTIME) $("#clip-name").textContent = "Realtime";
+  else if (L) try { localStorage.setItem("motus-live-site", L.site); } catch {}   // the start menu's Live opens it
+}
+
+function toggleSiteMenu(on) {
+  const m = $("#site-menu"), b = $("#site-btn"), open = on ?? m.hidden;
+  m.hidden = !open;
+  b.setAttribute("aria-expanded", String(open));
+  if (open) {
+    m.style.left = `${Math.max(8, b.getBoundingClientRect().left)}px`;
+    (m.querySelector('[aria-current="true"]') || m.querySelector("button")).focus({ preventScroll: true });
   }
-  $("#sites").hidden = false;
 }
 
 /* Away from realtime (another site's page, the recordings): the pass drawn so far saved first (a
@@ -2222,7 +2256,7 @@ async function leaveRealtime(url) {
   location.href = url;
 }
 
-/** The passes: how many are in the view, the saved ones (load / delete). */
+/** The passes: how many are in the view, the saved ones (load, replay, delete, their output). */
 function syncPasses() {
   if (!L || !P.cur) return;
   syncPassCount(true);
@@ -2237,8 +2271,7 @@ function syncPasses() {
     const shown = allShown(q), rec = !!q.recorded, mine = R && R.q.id === q.id && R.q.run === q.run;
     const op = P.ops.get(opKey(q)) || {};
     row.innerHTML = `<span class="pl"></span>
-      <div class="pass-do"><button class="btn sm" data-a="load"></button><button class="btn sm" data-a="replay"></button><button class="btn sm" data-a="video">Video</button><button class="btn sm" data-a="del">Delete</button></div>
-      <div class="pass-do"><button class="btn sm" data-a="rhino">Rhino</button><button class="btn sm" data-a="houdini">Houdini</button><button class="btn sm" data-a="geojson">GeoJSON</button><button class="btn sm" data-a="sheet">Sheet</button></div>
+      <div class="pass-do"><button class="btn sm" data-a="load"></button><button class="btn sm" data-a="replay"></button><button class="btn sm" data-a="del">Delete</button><button class="btn sm" data-a="out">Output</button></div>
       <p class="pass-op mono"></p>`;
     row.querySelector(".pl").textContent = passLabel(q);
     row.title = `${q.id} · ${(q.cameras || []).join(", ")}` + (rec ? ` · recorded ${fmtS(q.rec_s)}` : " · no recording (saved before 29 Oct)");
@@ -2248,6 +2281,7 @@ function syncPasses() {
     lb.title = shown ? "Its layers are on its cameras" : "Its layers back on its cameras (Stack off: in place of theirs; on: added)";
     lb.onclick = () => loadPass(q);
     const db = row.querySelector('[data-a="del"]');
+    db.title = "Delete the pass and its files (click twice)";
     db.disabled = mine || !!op.busy;
     let armed = 0;
     db.onclick = () => {
@@ -2260,27 +2294,95 @@ function syncPasses() {
     rb.disabled = !rec || (busy && !mine);
     rb.title = rec ? (mine ? "Back to live (Esc)" : "Play the pass back as it was drawn (Space pauses, Esc stops)") : "Saved before recordings: nothing to replay";
     rb.onclick = () => mine ? stopReplay() : startReplay(q, "watch").catch((e) => passOp(q, { what: "replay", text: e.message, bad: true }));
-    const vb = row.querySelector('[data-a="video"]');
-    vb.disabled = !rec || busy;
-    vb.title = rec ? `A video of the pass replayed, ${RENDER.width} x ${RENDER.height}, ${RENDER.fps} fps, from the view as it is now` : "Saved before recordings: nothing to render";
-    vb.onclick = () => passVideo(q);
-    const sb = row.querySelector('[data-a="sheet"]');
-    sb.disabled = !!op.busy;
-    sb.title = "The performance sheet: the finished drawing above, the score of how it was played below " +
-               `(light, PDF + PNG), in the pass's folder${rec ? "" : " (saved before recordings: the drawing only)"}`;
-    sb.onclick = () => passSheet(q);
-    for (const what of ["rhino", "houdini", "geojson"]) {
-      const b = row.querySelector(`[data-a="${what}"]`);
-      b.disabled = !!op.busy;
-      b.title = { rhino: "The pass as a Rhino model (.3dm + Grasshopper script), in the pass's folder",
-                  houdini: "The pass as a Houdini POP kit (its field), the scene built in the background",
-                  geojson: "The pass's points, tracks (GeoJSON, EPSG:27700), camera path and Houdini curves" }[what];
-      b.onclick = () => passExport(q, what);
-    }
+    const ob = row.querySelector('[data-a="out"]');
+    ob.title = "Its sheet, video and exports: the panel's Output, on this pass";
+    ob.onclick = () => { togglePassMenu(false); outputPass(q); };
     showOp(row, op);
     el.appendChild(row);
   }
   if (!P.saved.length) el.innerHTML = `<p class="hint">No saved pass yet.</p>`;
+  syncOutput();
+}
+
+// ---------------------------------------------------------------------------- Output (30 Oct)
+/* One place for what comes out: the collage (every layer in the view), the selected camera's layer
+   or a saved pass; then its sheet, all exports in one go, or one of them (a pass: its video too).
+   Was: the camera menu's Sheet / Exports, the Scene's Collage sheet / Export collage, each saved
+   pass's row. */
+const OUT = { scope: "all", pass: null };          // pass: opKey of the chosen saved pass
+
+const outPassQ = () => P.saved.find((q) => opKey(q) === OUT.pass) || P.saved[0] || null;
+
+function syncOutput() {
+  if (!L) return;
+  $$("#out-scope [data-scope]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.scope === OUT.scope)));
+  const s = selSpot(), q = OUT.scope === "pass" ? outPassQ() : null;
+  const pick = $("#out-pass");
+  pick.hidden = OUT.scope !== "pass" || !P.saved.length;
+  const key = P.saved.map(opKey).join("|");
+  if (pick.dataset.key !== key) {
+    pick.dataset.key = key;
+    pick.innerHTML = "";
+    for (const x of P.saved) {
+      const o = document.createElement("option");
+      o.value = opKey(x);
+      o.textContent = passLabel(x);
+      pick.appendChild(o);
+    }
+  }
+  if (q) pick.value = opKey(q);
+  const keys = layerKeys(), n = keys.size, nc = new Set([...keys].map((k) => k.slice(k.indexOf("|") + 1))).size;
+  $("#out-what").textContent = OUT.scope === "all" ? (n ? `Every layer in the view: ${n} on ${nc} camera${nc === 1 ? "" : "s"}` : "No layer in the view yet")
+    : OUT.scope === "camera" ? (s ? `${s.name}'s layer` + (hasSheet(s) ? "" : ": none yet") : "No camera selected")
+    : q ? `${(q.cameras || []).join(", ")}` + (q.recorded ? ` · ${fmtS(q.rec_s)}` : " · no recording") : "No saved pass yet";
+  const op = q ? P.ops.get(opKey(q)) || {} : null;
+  const can = OUT.scope === "all" ? n > 0 : OUT.scope === "camera" ? !!s && hasSheet(s) : !!q;
+  const busyX = OUT.scope === "pass" ? !!(op && op.busy) : exportBusy, busyS = OUT.scope === "pass" ? !!(op && op.busy) : collageBusy;
+  $("#out-sheet").disabled = !can || busyS;
+  for (const id of ["#out-all", "#out-rhino", "#out-houdini", "#out-geojson"]) $(id).disabled = !can || busyX;
+  const vb = $("#out-video");
+  vb.hidden = OUT.scope !== "pass";
+  vb.disabled = !q || !q.recorded || !!R || [...P.ops.values()].some((o) => o.busy && o.what === "video");
+  if (OUT.scope === "pass") showOp($("#scene-out"), op || {});
+  else if (!OUT.said) showOp($("#scene-out"), {});
+}
+
+/** The output's own line (the collage's, a camera's): progress, then where the files are. */
+function outSay(text, bad = false, path = "") {
+  OUT.said = text ? { text, bad, path } : null;
+  if (OUT.scope !== "pass") showOp($("#scene-out"), { text, bad, path });
+}
+
+/** A pass's Output button (Saved passes, L): Output on that pass, the panel open on it. */
+function outputPass(q) {
+  OUT.scope = "pass";
+  OUT.pass = opKey(q);
+  togglePanel(true);
+  const sec = $("#scene-out");
+  sec.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  sec.classList.remove("flash");
+  void sec.offsetWidth;
+  sec.classList.add("flash");
+  syncOutput();
+}
+
+function bindOutput() {
+  $$("#out-scope [data-scope]").forEach((b) => b.onclick = () => {
+    OUT.scope = b.dataset.scope;
+    if (OUT.scope !== "pass" && OUT.said) showOp($("#scene-out"), OUT.said);
+    syncOutput();
+  });
+  $("#out-pass").onchange = (e) => { OUT.pass = e.target.value; syncOutput(); };
+  const go = (fn) => () => {
+    const q = outPassQ(), s = selSpot();
+    if (OUT.scope === "pass") { if (q) fn.pass(q); }
+    else if (OUT.scope === "camera") { if (s) fn.layers(s.name); }
+    else fn.layers(null);
+  };
+  $("#out-sheet").onclick = go({ pass: passSheet, layers: (name) => collageSheet(name) });
+  for (const what of ["all", "rhino", "houdini", "geojson"])
+    $(`#out-${what}`).onclick = go({ pass: (q) => passExport(q, what), layers: (name) => collageExport(name, what) });
+  $("#out-video").onclick = () => { const q = outPassQ(); if (q && OUT.scope === "pass") passVideo(q); };
 }
 
 // ---------------------------------------------------------------------------- per pass: video, export (05)
@@ -2297,11 +2399,12 @@ function showOp(row, op) {
   el.title = op.path || "";
 }
 
-/** A pass's progress or result under its row (no rebuild of the list). */
+/** A pass's progress or result under its row and in Output while it shows that pass (no rebuild). */
 function passOp(q, op) {
   P.ops.set(opKey(q), op);
   const row = [...$$("#pass-list .pass")].find((r) => r.dataset.id === q.id);
   if (row) showOp(row, op);
+  if (OUT.scope === "pass" && outPassQ() === q) showOp($("#scene-out"), op);
 }
 
 async function passVideo(q) {
@@ -2317,12 +2420,12 @@ async function passVideo(q) {
 /* An export as a job of the app (groundtrack live-pass-export): its last line while it runs, then
    where the files are. Rhino or Houdini open: asked first (the model / scene is rewritten). */
 async function passExport(q, what, force = false) {
-  const label = { rhino: "Rhino", houdini: "Houdini", geojson: "GeoJSON" }[what];
+  const label = { all: "All", rhino: "Rhino", houdini: "Houdini", geojson: "GeoJSON" }[what];
   passOp(q, { what, busy: true, text: `${label} · starting` });
   syncPasses();
   try {
     let j;
-    const body = { run: q.run, id: q.id, rhino: what === "rhino", houdini: what === "houdini", force };
+    const body = { run: q.run, id: q.id, rhino: what === "rhino" || what === "all", houdini: what === "houdini" || what === "all", force };
     const r = await fetch("/api/live/export", { method: "POST", headers: { "Content-Type": "application/json", "X-Groundtrack": "1" }, body: JSON.stringify(body) });
     const d = await r.json().catch(() => ({}));
     if (r.status === 409 && d.confirm) {
@@ -2341,8 +2444,8 @@ async function passExport(q, what, force = false) {
       await new Promise((res) => setTimeout(res, 700));
     }
     if (j.returncode !== 0) throw new Error((j.last || lines.filter((l) => l.trim()).pop() || `exit ${j.returncode}`).slice(0, 200));
-    const dir = d.dir || "", sub = { rhino: "rhino", houdini: "houdini_pop", geojson: "data" }[what];
-    const path = dir ? `${dir}${dir.includes("\\") ? "\\" : "/"}${sub}` : "";
+    const dir = d.dir || "", sub = { all: "", rhino: "rhino", houdini: "houdini_pop", geojson: "data" }[what];
+    const path = dir && sub ? `${dir}${dir.includes("\\") ? "\\" : "/"}${sub}` : dir;
     passOp(q, { what, text: `${label} → ${shortPath(path) || "done"}`, path });
   } catch (e) { passOp(q, { what, text: `${label} · ${e.message}`, bad: true }); }
   syncPasses();
@@ -2364,20 +2467,21 @@ function bindPanel() {
   $("#zero").onclick = () => zero(null, shownSpot());
   $("#gain").oninput = (e) => { setGain(+e.target.value, shownSpot()); publishState(); };
   $("#scale").oninput = (e) => { setScale(SCALES[+e.target.value], shownSpot()); publishState(); };
-  $("#cm-close").onclick = () => openCamMenu(null);
-  $("#cm-sheet").onclick = () => { const s = menuSpot(); if (s) collageSheet(s.name); };
-  $("#collage-sheet").onclick = () => collageSheet(null);
-  $("#cm-exports").onclick = () => { const s = menuSpot(); if (s) collageExport(s.name); };
-  $("#collage-export").onclick = () => collageExport(null);
-  $("#cm-focus").onclick = () => { const s = menuSpot(); if (s) toggleFocus(s); };
-  $("#cm-solo").onclick = () => { const s = menuSpot(); if (s) toggleSolo(s); };
-  $("#cm-video").onclick = () => { const s = menuSpot(); if (s) toggleBox(s); };
+  bindOutput();
+  $("#cm-focus").onclick = () => { const s = selSpot(); if (s) toggleFocus(s); };
+  $("#cm-solo").onclick = () => { const s = selSpot(); if (s) toggleSolo(s); };
+  $("#cm-video").onclick = () => { const s = selSpot(); if (s) toggleBox(s); };
   $("#whole-scene").onclick = () => wholeScene();
-  $("#cm-clear").onclick = () => { const s = menuSpot(); if (s) clearCamera(s.name); };
-  $("#cm-smooth").onchange = (e) => { const s = menuSpot(); if (s) setSmooth(e.target.checked, s); else syncCamMenu(); };
+  $("#cm-clear").onclick = () => { const s = selSpot(); if (s) clearCamera(s.name); };
+  $("#cm-smooth").onchange = (e) => { const s = selSpot(); if (s) setSmooth(e.target.checked, s); else syncCamSel(); };
+  $("#site-btn").onclick = () => toggleSiteMenu();
+  document.addEventListener("pointerdown", (e) => {      // the site menu: a click elsewhere closes it
+    if (!$("#site-menu").hidden && !e.target.closest("#site-menu, #site-btn")) toggleSiteMenu(false);
+  });
+  bindFolds();
   let armed = 0;
   $("#cm-remove").onclick = () => {
-    const s = menuSpot(), b = $("#cm-remove");
+    const s = selSpot(), b = $("#cm-remove");
     if (!s) return;
     if (!armed) { b.textContent = "Sure?"; armed = setTimeout(() => { armed = 0; b.textContent = "Remove"; }, 3000); return; }
     clearTimeout(armed); armed = 0; b.textContent = "Remove";
@@ -2396,7 +2500,28 @@ function bindPanel() {
   $$("#views [data-view]").forEach((b) => b.onclick = () => setView(+b.dataset.view));
   $("#panel-btn").onclick = () => togglePanel();
   $("#fs-btn").onclick = () => toggleFullscreen();
+  // back where Live was opened from: its run in the app, else the start menu
+  let fromRun = false;
+  try { fromRun = !!sessionStorage.getItem("gt.run"); } catch {}
+  $("#back").textContent = fromRun ? "\u2190 Run" : "\u2190 Menu";
+  $("#back").title = fromRun ? "Back to the run" : "Back to the start menu";
   $("#back").onclick = () => { location.href = "/"; };
+}
+
+/* The panel's folded parts (Display, Help; 30 Oct): open / closed, remembered on this computer. */
+function bindFolds() {
+  for (const part of $$("[data-fold]")) {
+    const b = part.querySelector(".fold-h"), body = $(`#${b.getAttribute("aria-controls")}`), key = `motus-live-fold-${part.dataset.fold}`;
+    const set = (open) => { b.setAttribute("aria-expanded", String(open)); body.hidden = !open; };
+    let open = false;
+    try { open = localStorage.getItem(key) === "1"; } catch {}
+    set(open);
+    b.onclick = () => {
+      open = body.hidden;
+      set(open);
+      try { localStorage.setItem(key, open ? "1" : "0"); } catch {}
+    };
+  }
 }
 
 function togglePanel(on) {
@@ -2495,6 +2620,17 @@ window.addEventListener("keydown", (e) => {
   const t = e.target;
   if (t && (t.tagName === "INPUT" && t.type !== "range" && t.type !== "checkbox" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
   if (e.ctrlKey || e.metaKey) return;
+  if (!$("#site-menu").hidden) {                   // the site menu: the arrows move, Esc closes it
+    const items = $$("#site-list button"), i = items.indexOf(document.activeElement);
+    if (e.key === "Escape") { toggleSiteMenu(false); $("#site-btn").focus(); e.preventDefault(); return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "Enter" || e.key === " ") return;              // the item's own click
+    toggleSiteMenu(false);
+  }
   if (!L || !L.focus) return;
   const k = e.key, gain = L.focus.inp.gain;
   if (R) {                                         // a replay: Space pauses it, Esc stops it
@@ -2511,7 +2647,6 @@ window.addEventListener("keydown", (e) => {
   else if (k === "k" || k === "K") setStack(!S.stack);
   else if (k === "l" || k === "L") togglePassMenu();
   else if (k === "Escape" && !$("#pass-menu").hidden) togglePassMenu(false);
-  else if (k === "Escape" && camMenu.name) openCamMenu(null);
   else if (k === "o" || k === "O") toggleFocus(L.focus);
   else if (k === "w" || k === "W") wholeScene();
   else if (k === "i" || k === "I") setSolo(L.solo ? null : L.focus);
@@ -2751,10 +2886,15 @@ function frame(now) {
 /** The layers' count in the panel follows the drawing (a camera's drawing of a step: one layer). */
 let passShown = -1;
 function syncPassCount(force = false) {
+  const n = layerKeys().size;
+  if (n !== passShown || force) { passShown = n; $("#pass-n").textContent = `${n} layer${n === 1 ? "" : "s"}`; syncOutput(); }
+}
+
+/** The layers in the view, "key|camera" each (the play being drawn too). */
+function layerKeys() {
   const keys = new Set(past.items.map((it) => `${it.key}|${it.cam}`));
-  if (!R && P.cur) for (const s of L.spots) if (drew(s)) keys.add(`${P.cur.key}|${s.name}`);
-  const n = keys.size;
-  if (n !== passShown || force) { passShown = n; $("#pass-n").textContent = `${n} layer${n === 1 ? "" : "s"}`; }
+  if (L && !R && P.cur) for (const s of L.spots) if (drew(s)) keys.add(`${P.cur.key}|${s.name}`);
+  return keys;
 }
 
 /** Whether a changed: copies a into key at o (a key starts as NaN: changed). */
@@ -3027,6 +3167,7 @@ async function devPlayers(words) {
 }
 
 (async function start() {
+  startTips();
   bindPanel();
   resize();
   // the mouse head: its poses go through the same handler as the phone's (to the focus camera)
@@ -3065,7 +3206,7 @@ async function devPlayers(words) {
   startHub();
   window.live = { get L() { return L; }, S, P, past, timeline, input, mouse, setView, setTrails, setGain, setScale, setSmooth, zero, bench,
                   get link() { return link; }, spacePress, spaceRelease, spaceLevel, toggleCause, cycleUnder, onControl, onPose,
-                  setFocus, setPlayers, panels, camera, orbit, undoPass, clearPasses, clearCamera, collageLayers, setSolo, setFramed, toggleBox, toggleBoxes, markCamera, removeCamera, openCamMenu, loadPass, deletePass, switchSite, setStack,
+                  setFocus, setPlayers, panels, camera, orbit, undoPass, clearPasses, clearCamera, collageLayers, setSolo, setFramed, toggleBox, toggleBoxes, markCamera, removeCamera, selectCamera, loadPass, deletePass, switchSite, setStack,
                   refreshPasses, get sites() { return sites; }, startReplay, stopReplay, finishReplay, checkReplay, renderPass,
                   passExport, passSheet, sheetView, collageSheet, collageExport, get rec() { return rec; }, get R() { return R; }, RT, ready: true };
   if (SHEET) sheetPage();

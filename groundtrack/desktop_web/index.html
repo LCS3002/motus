@@ -8,6 +8,10 @@
   <link rel="preload" href="/static/fonts/SplineSansMono-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/tokens.css">
   <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/intro.css">
+  <script>/* the start menu (intro.js): on at once, so the workspace never flashes first; not on the way back to a run */
+    try { if (!sessionStorage.getItem("gt.run") && location.hash !== "#workspace") document.documentElement.classList.add("intro-on"); }
+    catch { document.documentElement.classList.add("intro-on"); }</script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='.5' y='.5' width='31' height='31' rx='7' fill='%230b0b0d' stroke='%233a3a40'/><g transform='translate(4 4) scale(.75)' fill='none' stroke='%23ededed' stroke-width='3' stroke-linecap='round'><circle cx='16' cy='19' r='8'/><path d='M3 6.5h26'/></g></svg>">
 </head>
 <body>
@@ -20,8 +24,9 @@
 <div class="app" id="app">
   <header class="bar">
     <div class="brand">
+      <button class="brand-btn" data-intro title="The start menu: Live, Realtime, the recordings">
       <svg class="logo" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="16" cy="19" r="8"/><path d="M3 6.5h26"/></svg>
-      <span class="wordmark" aria-label="motus">mōtus</span>
+      <span class="wordmark" aria-label="motus">mōtus</span></button>
       <span class="biz" id="project" title="Project folder"></span>
     </div>
     <div class="grow"></div>
@@ -101,7 +106,38 @@
 </div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
+<div class="intro" id="intro" aria-label="motus: the start menu">
+  <canvas class="intro-gl" id="intro-gl" aria-hidden="true"></canvas>
+  <div class="intro-shade"></div>
+  <div class="intro-lb top"></div><div class="intro-lb bottom"></div>
+  <div class="intro-drag"></div>
+  <i class="intro-x tl"></i><i class="intro-x tr"></i><i class="intro-x bl"></i><i class="intro-x br"></i>
+  <header class="intro-head">
+    <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="16" cy="19" r="8"/><path d="M3 6.5h26"/></svg>
+    <span class="label">mōtus · Latin for motion</span>
+  </header>
+  <div class="intro-main">
+    <div>
+      <h1 class="intro-word" aria-label="motus"><span style="transition-delay:180ms">m</span><span style="transition-delay:290ms">ō</span><span style="transition-delay:400ms">t</span><span style="transition-delay:510ms">u</span><span style="transition-delay:620ms">s</span></h1>
+      <p class="intro-tag">Oblique video to movement in plan. Phones turn the camera; the machine redraws every track as it moves.</p>
+    </div>
+    <nav class="intro-menu" role="menu" aria-label="Start">
+      <div class="intro-row primary"><button class="intro-item" role="menuitem" data-go="live"><span class="i">01</span><span class="t">motus live</span><span class="s" id="intro-site">…</span></button>
+        <span class="intro-cycle" hidden><button data-site="-1" aria-label="The site before" title="The site before (←)"><svg viewBox="0 0 10 10"><path d="M6.5 2 3.5 5 6.5 8" fill="none" stroke="currentColor" stroke-width="1"/></svg></button><button data-site="1" aria-label="The next site" title="The next site (→)"><svg viewBox="0 0 10 10"><path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" stroke-width="1"/></svg></button></span></div>
+      <div class="intro-row"><button class="intro-item" role="menuitem" data-go="realtime"><span class="i">02</span><span class="t">Realtime</span><span class="s">One phone films, the laptop tracks it now</span></button></div>
+      <div class="intro-row"><button class="intro-item" role="menuitem" data-go="recordings"><span class="i">03</span><span class="t">Recordings</span><span class="s">The realtime recordings · the recorder's frame size</span></button></div>
+      <div class="intro-row"><button class="intro-item" role="menuitem" data-go="workspace"><span class="i">04</span><span class="t">Workspace</span><span class="s">Sites, calibration, tracking, runs, jobs</span></button></div>
+      <div class="intro-row" hidden><button class="intro-item" role="menuitem" data-go="quit"><span class="i">05</span><span class="t">Quit</span><span class="s">Close motus</span></button></div>
+    </nav>
+  </div>
+  <footer class="intro-foot">
+    <div class="intro-read" id="intro-read"></div>
+    <div class="intro-keys label">↑ ↓ choose · ← → site · Enter open · Esc workspace</div>
+  </footer>
+</div>
+
 <script src="/static/viewer.js"></script>
 <script src="/static/app.js"></script>
+<script type="module" src="/static/intro.js"></script>
 </body>
 </html>

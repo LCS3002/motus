@@ -31,6 +31,7 @@ export class Panels {
       const e = { key, player: p.player, spot: p.spot, cam: new THREE.PerspectiveCamera(40, 16 / 9, 0.05, 4000), popup: null };
       e.el = document.createElement("div");
       e.el.className = "pp";
+      e.el.title = "This player's view · click: mark its camera · Shift+click: focus";
       e.el.style.setProperty("--tint", p.spot.tint);
       e.el.innerHTML = `<span class="pp-name label"></span>
         <button class="pp-out" title="Pop out to its own window (another screen, a projector)" aria-label="Pop out">

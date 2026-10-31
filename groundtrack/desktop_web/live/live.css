@@ -143,24 +143,64 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 9px; 
 .spot .who { color: var(--muted); }
 .spot .nm { font: var(--t-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spot .who { white-space: nowrap; }
-#site-list { flex-wrap: wrap; }
 .spot:disabled { cursor: default; opacity: 0.55; }
-/* the panel's two parts: Cameras, Scene */
+/* the panel's parts (30 Oct): Players, Cameras, Drawing, Output, Display (folded), Help (folded) */
 .part-h { margin: 0; padding: 14px var(--margin) 4px; color: var(--fg); display: flex; align-items: center; gap: 8px; }
-#part-scene { border-top: 1px solid var(--line); }
-/* a camera's row: the camera, its menu (\22ef); a frozen one (out of play, its layer kept) dashed */
-.spot-row { display: grid; grid-template-columns: minmax(0, 1fr) 26px; gap: 4px; }
-.spot-m { height: 26px; padding: 0; border: 1px solid var(--line); background: none; color: var(--muted); font: var(--t-body); }
-.spot-m:hover:not(:disabled), .spot-m[aria-expanded="true"] { background: var(--hover); color: var(--fg); }
-.spot-m:disabled { opacity: 0.35; cursor: default; }
-/* a camera's menu, under its row */
-.panel .cmenu { padding: 10px 10px 12px; border: 1px solid var(--line); border-top: 0; margin-top: -4px; gap: 8px; }
-.panel .cmenu #cm-name { color: var(--fg-2); }
+.part + .part { border-top: 1px solid var(--line); }
+.fold > .part-h { padding: 0; }
+.fold-h { flex: 1; display: flex; align-items: center; gap: 8px; padding: 14px var(--margin) 12px; border: 0; background: none;
+          font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--fg); text-align: left; }
+.fold-h:hover { background: var(--hover); }
+.fold-h svg { width: 10px; height: 10px; margin-left: auto; color: var(--muted); transition: transform var(--t) var(--ease); }
+.fold-h[aria-expanded="true"] svg { transform: rotate(90deg); }
+.fold-body > section:first-child, section.fold-body { padding-top: 2px; }
+.panel .hint b { font-weight: 500; color: var(--fg-2); }
+/* who holds which camera: a line per player, the mouse's camera */
+.holders { display: grid; gap: 2px; font: var(--t-mono); color: var(--fg-2); }
+.holders:empty { display: none; }
+.holders span { display: flex; gap: 8px; }
+.holders i { font-style: normal; color: var(--tint, var(--violet-line)); }
+.mouse-cam { color: var(--fg-2); text-transform: none; letter-spacing: 0; font: var(--t-mono); }
+/* a camera's row; a frozen one (out of play, its layer kept) dashed */
+.spot-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+/* the selected camera, under the list */
+.panel .csel { gap: 8px; }
+.panel .csel #cm-name { color: var(--fg); }
 .cm-mouse { display: grid; gap: 9px; }
-.cm-mouse[hidden], .cmenu[hidden] { display: none; }
-.cmenu .check:has(input:disabled) { opacity: 0.45; cursor: default; }
+.cm-mouse[hidden], .csel[hidden] { display: none; }
+.csel .check:has(input:disabled) { opacity: 0.45; cursor: default; }
 .spot.parked { border-style: dashed; }
 .spot.parked .sw { opacity: 0.6; }
+.spot.selected { background: var(--press); color: var(--fg); }
+/* output: what (collage, the selected camera, a saved pass), then the formats */
+.out-do { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.out-do .btn { min-width: 0; padding: 0 4px; }
+.out-pass { appearance: none; -webkit-appearance: none; height: 26px; border: 1px solid var(--line); background: var(--bg);
+            padding: 0 8px; font: var(--t-mono); color: var(--fg-2); min-width: 0; }
+#scene-out.flash { animation: out-flash 900ms var(--ease); }
+@keyframes out-flash { from { background: rgb(155 130 217 / 0.18); } to { background: transparent; } }
+
+/* ---------- the top bar's site (its menu: the sites, Realtime, the recordings) and Whole scene */
+.site-btn { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px; margin-left: -8px; border: 1px solid transparent;
+            background: none; color: var(--fg); min-width: 0; }
+.site-btn:hover, .site-btn[aria-expanded="true"] { border-color: var(--line); background: var(--hover); }
+.site-btn svg { width: 10px; height: 10px; flex: none; color: var(--muted); }
+.bar-btn { border: 0; background: none; padding: 4px 0; font: var(--t-label); letter-spacing: var(--tracking-label); text-transform: uppercase;
+           color: var(--muted); white-space: nowrap; display: flex; align-items: center; gap: 6px; flex: none; }
+.bar-btn:hover { color: var(--fg); }
+.bar .key { font: var(--t-label); color: var(--faint); border: 1px solid var(--rule-soft); padding: 0 4px; }
+.smenu { position: fixed; top: calc(var(--bar-h) - 4px); left: 64px; z-index: 12; min-width: 260px; max-width: calc(100vw - 24px);
+         max-height: calc(100vh - var(--bar-h) - 24px); overflow-y: auto; padding: 6px; background: rgb(0 0 0 / 0.92); border: 1px solid var(--line); }
+.smenu[hidden] { display: none; }
+.site-list { display: grid; gap: 2px; }
+.site-list button { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 9px; align-items: center; height: 30px; padding: 0 10px;
+                    border: 1px solid transparent; background: none; text-align: left; color: var(--fg-2); font: var(--t-body); }
+.site-list button:hover { background: var(--hover); color: var(--fg); }
+.site-list button[aria-current="true"] { border-color: var(--fg); color: var(--fg); }
+.site-list button .n { font: var(--t-mono); color: var(--muted); }
+.site-list button .dot { width: 5px; height: 5px; background: currentColor; opacity: 0; }
+.site-list button[aria-current="true"] .dot { opacity: 1; }
+.site-list hr { border: 0; border-top: 1px solid var(--rule-soft); margin: 4px 0; }
 
 /* passes: the saved ones, newest first (load / delete) */
 .pass-n { color: var(--muted); }
@@ -204,6 +244,12 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 9px; 
 .t-rate select { appearance: none; -webkit-appearance: none; height: 26px; border: 1px solid var(--line); background: var(--bg);
                  padding: 0 8px; font: var(--t-mono); color: var(--fg-2); }
 select option { background: var(--bg); color: var(--fg); }
+
+/* ---------- the hover explanation (tips.js): a black sheet with a hairline, mono */
+.tip { position: fixed; z-index: 200; max-width: 300px; padding: 6px 9px; background: rgb(0 0 0 / 0.92); border: 1px solid var(--line);
+       font: var(--t-mono); color: var(--fg-2); pointer-events: none; opacity: 0; transform: translateY(2px);
+       transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); }
+.tip.on { opacity: 1; transform: none; }
 
 /* ---------- loading */
 .loading { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; gap: 8px; text-align: center;

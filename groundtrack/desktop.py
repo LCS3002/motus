@@ -458,11 +458,12 @@ class DesktopApp(App):
         return {**job.summary(), "dir": str(export_dir(run, pid))}
 
     def live_layers_export(self, body: bytes) -> dict:
-        """The collage (or one camera's layer) as a run, all of Rhino, Houdini and GeoJSON: [u32 header
+        """The collage (or one camera's layer) as a run: GeoJSON and the files always, Rhino and Houdini
+        unless the header says false (Live's Output: All, or one of them): [u32 header
         length][JSON header][files] (live_passes.parse_files). Header {camera (one camera's layer; none:
         the collage), site, layers: [{camera, camera_id, package, run, id, key, kind, stacked, up_to,
-        file}], force}; one drawing per layer. Prepared in <run of the first layer>/live/exports/, then
-        `groundtrack live-layers-export` as a job."""
+        file}], rhino, houdini, force}; one drawing per layer. Prepared in <run of the first
+        layer>/live/exports/, then `groundtrack live-layers-export` as a job."""
         from .live_pass_export import MAX_LAYERS, prepare_layers
         from .live_passes import parse_files
 
@@ -481,17 +482,20 @@ class DesktopApp(App):
             layers.append({**{k: ly.get(k) for k in ("camera", "camera_id", "key", "kind", "stacked", "up_to", "file")},
                            "package": pkg, "run": run, "id": str(pid) if pid else None})
         cam = head.get("camera") if isinstance(head.get("camera"), str) and head.get("camera") else None
+        rhino, houdini = head.get("rhino", True) is not False, head.get("houdini", True) is not False
         running = links.running_apps()
         if not head.get("force"):
-            if running["rhino"]:
+            if rhino and running["rhino"]:
                 raise NeedsConfirm("Rhino is open. The export writes a new model in live/exports/ (nothing "
                                    "open is rewritten). Export?")
-            if running["houdini"]:
+            if houdini and running["houdini"]:
                 raise NeedsConfirm("Houdini is open. The export builds a new kit scene in live/exports/ with "
                                    "hython (nothing open is rebuilt). Export?")
         out = prepare_layers(layers, files, camera=cam, site=str(head.get("site") or ""), root=self.root)
-        job = self.job_class("live-layers-export", ["live-layers-export", str(out), "--rhino", "--houdini"],
-                             self.root, f"export · {cam or 'collage'} · {len(layers)} layers")
+        args = ["live-layers-export", str(out)] + (["--rhino"] if rhino else []) + (["--houdini"] if houdini else [])
+        what = "+".join(k for k, on in (("rhino", rhino), ("houdini", houdini)) if on) or "files"
+        job = self.job_class("live-layers-export", args, self.root,
+                             f"export · {cam or 'collage'} · {len(layers)} layers · {what}")
         self.jobs[job.id] = job
         return {**job.summary(), "dir": str(out)}
 

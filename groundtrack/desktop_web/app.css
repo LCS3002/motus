@@ -29,6 +29,8 @@ button { cursor: pointer; }
 
 .bar { display: flex; align-items: center; gap: 12px; height: var(--bar-h); padding: 0 8px 0 var(--margin); border-bottom: 1px solid var(--rule); min-width: 0; }
 .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.brand-btn { display: flex; align-items: center; gap: 9px; height: 30px; margin-left: -6px; padding: 0 6px; border: 0; background: none; color: inherit; cursor: pointer; }
+.brand-btn:hover { background: var(--hover); }
 .logo { width: 18px; height: 18px; flex: none; }
 .wordmark { font: 400 16px/1 var(--font-sans); letter-spacing: -0.03em; padding-bottom: 2px; white-space: nowrap; }
 .biz { font: var(--t-mono); color: var(--muted); margin-left: 5px; padding-left: 14px; border-left: 1px solid var(--rule); line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; }

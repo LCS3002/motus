@@ -309,10 +309,10 @@ export class Timeline {
       </button>
       <span class="t-pass label" data-t="pass"></span>
       <span class="t-time num" data-t="time">00:00.00</span>
-      <input class="scrub" data-t="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Time">
+      <input class="scrub" data-t="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Time" title="Drag to go through the clip (← →: a frame, Shift: 10)">
       <span class="t-frame num" data-t="frame" title="The focus camera's frame"></span>
       <span class="t-dur num" data-t="dur" title="The longest clip: the pass ends here"></span>
-      <label class="t-rate"><span class="label">Rate</span>
+      <label class="t-rate" title="The clock's speed: slower or faster than the footage"><span class="label">Rate</span>
         <select data-t="rate">${RATES.map((r) => `<option value="${r}" ${r === 1 ? "selected" : ""}>${r}×</option>`).join("")}</select></label>`;
     const q = (k) => el.querySelector(`[data-t="${k}"]`);
     this.playEl = q("play"); this.timeEl = q("time"); this.scrub = q("scrub"); this.frameEl = q("frame");
