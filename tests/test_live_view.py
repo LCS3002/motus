@@ -974,7 +974,14 @@ def test_layers_eye_padlock_and_add_camera():
     sl = js.split("function setLock(name, on)")[1].split("\n}\n")[0]
     assert 'link.sendMessage({ type: "release", spot: name })' in sl and "One camera stays unlocked" in sl
     assert 'rec.event("lock"' in sl and "lock" in lp.EVENTS and "camera_add" in lp.EVENTS
-    assert "L.autoLocked.delete(name);\n    L.inPlay.add(name);" in sl and "L.lockedCams.add(name);\n    L.autoLocked.delete(name);" in sl
+    assert "L.autoLocked.delete(name);\n    L.released.delete(name);" in sl and "L.lockedCams.add(name);\n    L.autoLocked.delete(name);" in sl
+    assert "L.released.delete(name);" in sl.split("} else {")[1] and "L.inPlay.add(name);" in sl.split("} else {")[1]
+    # a release lost while the link was down (the padlock, Remove): sent again once it is back, to the
+    # phones still on a camera let go (the hub also lets go of a camera its state marks locked)
+    hub = js.split("onHub: (m) => {")[1].split("onStatus:")[0]
+    assert "if (relinked && L) {" in hub and 'for (const name of L.released.keys()) link.sendMessage({ type: "release", spot: name });' in hub
+    assert hub.index("setPlayers(m.players);") < hub.index("if (relinked && L) {")      # pruned first
+    assert 'if (s === "connected") { relinked = true; publishState(true); }' in js
     assert "if (isLocked(c.name)) o.locked = true;" in js                                     # to the hub, the phones
     phone = (LIVE.parents[1] / "live_phone" / "phone.js").read_text(encoding="utf-8")
     assert "o.disabled = !!by || lockedOut(s);" in phone and '"locked on the laptop"' in phone

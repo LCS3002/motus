@@ -197,10 +197,12 @@ function boot() {
     draw();
   }
 
+  const poseMsg = (q, status) => ({type: "pose", v: 1, src: "web", seq: seq++,
+    t: performance.now() / 1000, q: q.map(v => +v.toFixed(6)), p: null, status});
+
   function sendPose(q, status) {
     if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 2048) return false;   // late: skip, never queue
-    ws.send(JSON.stringify({type: "pose", v: 1, src: "web", seq: seq++,
-      t: performance.now() / 1000, q: q.map(v => +v.toFixed(6)), p: null, status}));
+    ws.send(JSON.stringify(poseMsg(q, status)));
     sent++;
     return true;
   }
@@ -371,15 +373,23 @@ function boot() {
   }
 
   // ---- remote
-  function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+  function send(obj) {
+    if (!ws || ws.readyState !== 1) return false;
+    ws.send(JSON.stringify(obj));
+    return true;
+  }
   function control(action, value = null) { send({type: "control", action, value}); }
 
   ui.zero.addEventListener("click", () => {
-    if (lastE) {                                  // the hold settled again: Live's zero taken in it
-      const h = holdAngle(...lastE, null, held), q = cameraQuaternion(...lastE, h);
-      if (h !== held && sendPose(q, "ok")) { held = h; lastQ = q; draw(); }
-    }
-    send({type: "zero"});
+    // The hold settled again, and the zero carries the pose it is taken at, in that hold: Live takes
+    // the pose and the zero in one step (31 Oct: a pose sent before the zero could be drawn for a
+    // frame, turned ~90 deg by the change of hold, and recorded).
+    if (lastE) {
+      const h = holdAngle(...lastE, null, held);
+      let q = cameraQuaternion(...lastE, h);
+      if (lastQ && q[0] * lastQ[0] + q[1] * lastQ[1] + q[2] * lastQ[2] + q[3] * lastQ[3] < 0) q = q.map(v => -v);
+      if (send({type: "zero", pose: poseMsg(q, "ok")})) { held = h; lastQ = q; sent++; draw(); }
+    } else send({type: "zero"});
     ui.zero.classList.remove("flash");
     void ui.zero.offsetWidth;
     ui.zero.classList.add("flash");
@@ -578,10 +588,11 @@ function boot() {
     if (!area) {
       ui.plist.replaceChildren(...groups.map(g => {
         const names = g.spots.filter(n => byName.has(n));
-        const taken = names.filter(n => takenBy(byName.get(n)) || lockedOut(byName.get(n))).length, mine = names.includes(own);
+        const taken = names.filter(n => takenBy(byName.get(n))).length, mine = names.includes(own);
+        const locked = names.filter(n => !takenBy(byName.get(n)) && lockedOut(byName.get(n))).length;
         const meta = (mine ? "yours · " : "") + `${names.length} camera${names.length === 1 ? "" : "s"}`
-          + (taken ? ` · ${taken} taken` : "");
-        return item(g.name, meta, {mine, full: taken === names.length},
+          + (taken ? ` · ${taken} taken` : "") + (locked ? ` · ${locked} locked` : "");
+        return item(g.name, meta, {mine, full: taken + locked === names.length},
                     () => { pick.area = g.name; renderPicker(); });
       }));
     } else {

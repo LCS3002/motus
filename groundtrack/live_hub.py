@@ -51,7 +51,8 @@ Messages (JSON text frames; pose v1, see plans/live_controller/00_README.md):
     hub -> phone   {"type": "hub", "phones": n, "views": m, "player": k}  on every change
 
 A pose is relayed as {"type": "pose", "v": 1, "src", "seq", "t", "q", "p", "status", "player",
-"spot"} (q normalised), a zero as {"type": "zero", "player", "spot"}, a control as {"type":
+"spot"} (q normalised), a zero as {"type": "zero", "player", "spot"} (and "pose": the pose it
+is taken at, checked as a pose, when the phone sent one: Live takes both in one step), a control as {"type":
 "control", "action", "value", "player", "spot"}: the actions play, pause, seek, record,
 section, gain, scale, space (true: the clutch held, false: let go) and level (no value: the
 space back to level). Phones never switch the clip or the site (the laptop does): a "clip"
@@ -430,8 +431,10 @@ def clean_phone_message(m) -> dict | None:
     if not isinstance(m, dict):
         return None
     kind = m.get("type")
-    if kind == "zero":
-        return {"type": "zero"}
+    if kind == "zero":                           # with the pose it is taken at (checked as a pose), if any
+        pose = m.get("pose")
+        pose = clean_phone_message(pose) if isinstance(pose, dict) and pose.get("type") == "pose" else None
+        return {"type": "zero", "pose": pose} if pose is not None else {"type": "zero"}
     if kind == "control":
         action = m.get("action")
         if action not in ACTIONS:
@@ -989,7 +992,9 @@ class LiveHub:
 
     def _view_state(self, st: dict) -> None:
         """A checked state of the view: kept (the site only when it lists its spots), the
-        claims checked against the spots, the start camera handed out, each phone told."""
+        claims checked against the spots (a phone on a camera the view locked lets it go and
+        picks again: the padlock holds even if the view's release was lost), the start camera
+        handed out, each phone told."""
         site = {k: st.pop(k) for k in SITE_FIELDS if k in st}
         self.state = st
         changed = False
@@ -1001,11 +1006,14 @@ class LiveHub:
             self.site = {"spots": site["spots"], "groups": site.get("groups", []),
                          "start_spot": site.get("start_spot")}
         names = set(self._spot_names())
+        locked = {s["name"] for s in self.site["spots"] if s.get("locked")}
         for p in self.players.values():
             if switched or (p.spot is not None and p.spot not in names):
                 changed = changed or p.spot is not None
                 self._claim(p, None)                 # a new site, or a camera the view dropped
                 p.placed = False                     # not its choice: it may get the start
+            elif p.spot is not None and p.spot in locked:
+                changed = self._claim(p, None) or changed     # as a release: it picks again
         if switched:                                 # pages coming back: their number only
             self.seats = {k: (num, None) for k, (num, _) in self.seats.items()}
         changed = self._auto_place() or changed

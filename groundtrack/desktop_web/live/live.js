@@ -160,6 +160,7 @@ let L = null;
    (Set: its cameras), byName, mode ("watch" | "check" | "render"), t0, speed, done}. */
 let R = null;
 let link = null, mouse = null, hubInfo = null, sites = [], recordings = [];
+let relinked = false;                           // the hub link (re)connected: its next players list resends the releases
 const lastStart = {};                           // site -> the start camera's run last used (this session)
 const input = { get current() { return L && L.focus ? L.focus.inp : null; } };   // the focus camera's pose input
 const panels = new Panels({ renderer, scene: scene3, host: $("#players"), view: panelView,
@@ -706,6 +707,7 @@ function setLock(name, on) {
   } else {
     L.lockedCams.delete(name);
     L.autoLocked.delete(name);
+    L.released.delete(name);                     // a phone still on it (its release lost) moves it again
     L.inPlay.add(name);
     syncScene();                                 // in play, where it stands
   }
@@ -2201,14 +2203,27 @@ async function startHub() {
     showHub(d);
     link = new PoseLink({
       url: d.view_url, onPose, onControl,
-      onZero: (m) => { const s = spotOf(m && m.spot); if (s) zero(s.inp.phoneSrc, s); },
+      onZero: (m) => {
+        const s = spotOf(m && m.spot);
+        if (!s) return;
+        // the pose the zero is taken at, then the zero, in one step (31 Oct: a phone's change of hold at
+        // its Zero came as a pose before the zero, and a frame drawn between them turned ~90 deg)
+        if (m.pose) onPose({ ...m.pose, player: m.player, spot: m.spot });
+        zero(s.inp.phoneSrc, s);
+      },
       onHub: (m) => {
         showPhones(m.phones);
         if (Array.isArray(m.players)) hubPlayers(m.players);
-        if (Array.isArray(m.players) && !params.has("players")) setPlayers(m.players);
+        if (Array.isArray(m.players) && !params.has("players")) {
+          setPlayers(m.players);
+          if (relinked && L) {                     // back after the link dropped: a release lost meanwhile again
+            relinked = false;                      // (setPlayers kept only the phones still on a camera let go)
+            for (const name of L.released.keys()) link.sendMessage({ type: "release", spot: name });
+          }
+        }
       },
       onStatus: (s) => {
-        if (s === "connected") publishState(true);
+        if (s === "connected") { relinked = true; publishState(true); }
         else if (L) for (const sp of L.spots) {                                        // the link dropped: let go
           if (sp.inp.releaseWhere((w) => w.startsWith("phone"), clock())) recAt("space_release", sp, "link");
         }

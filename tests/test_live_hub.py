@@ -705,6 +705,44 @@ def test_a_camera_the_laptop_locked_is_refused_and_the_phones_see_it(hub):
             assert recv(v, "hub")["players"] == [{"player": 1, "spot": "6366"}]
 
 
+def test_a_phone_on_a_camera_the_laptop_locks_lets_it_go_without_the_release(hub):
+    """31 Oct: the padlock sends the hub a release, which is lost when the link is down then. The
+    state marking the camera locked lets its phone go as well (it stays and picks again)."""
+    locked = {**SITE, "spots": [{**s, "locked": True} if s["name"] == "6366" else s for s in SITE["spots"]]}
+    with view(hub) as v:
+        v.send(json.dumps({**SHARED, **SITE}))
+        with phone(hub) as a, phone(hub) as b:
+            claim(b, "6366")
+            recv(v, "hub", pred=lambda m: m["players"] == [{"player": 1, "spot": "6354"},
+                                                           {"player": 2, "spot": "6366"}])
+            v.send(json.dumps({**SHARED, **locked}))              # no release: the state alone
+            assert recv(v, "hub")["players"] == [{"player": 1, "spot": "6354"},
+                                                 {"player": 2, "spot": None}]
+            lk = lambda m: {s["name"]: s for s in m["spots"]}["6366"].get("locked") is True
+            st = recv(b, "state", pred=lk)                        # (states from before its claim skipped)
+            assert (st["player"], st["spot"], holders(st)["6366"]) == (2, None, None)
+            v.send(json.dumps({**SHARED, **locked}))              # again: nothing more to let go
+            with pytest.raises(TimeoutError):
+                recv(v, "hub", timeout=0.3)
+            claim(b, "6366")                                      # still refused
+            with pytest.raises(TimeoutError):
+                recv(v, "hub", timeout=0.3)
+
+
+def test_a_zero_carries_the_pose_it_is_taken_at(hub):
+    """31 Oct: a phone whose hold changes at its Zero sends the pose in the new hold inside the zero,
+    so Live takes both in one step (a pose sent before the zero could be drawn for a frame, turned
+    ~90 deg). The pose is checked as a pose; a bad one leaves a plain zero."""
+    with view(hub) as v:
+        with phone(hub) as p:
+            recv(v, "hub", pred=lambda m: m["phones"] == 1)
+            p.send(json.dumps({"type": "zero", "pose": pose(9, (0, 0, 1.02, 0), extra=1)}))
+            assert recv(v, "zero") == {"type": "zero", "pose": pose(9, (0, 0, 1, 0)), **mine()}
+            for bad in (pose(q=(0, 0, 0, 0)), pose(src="camera"), {"type": "zero"}, "x", [1]):
+                p.send(json.dumps({"type": "zero", "pose": bad}))
+                assert recv(v, "zero") == {"type": "zero", **mine()}
+
+
 def test_the_first_site_name_lets_nothing_go(hub):
     with view(hub) as v:
         v.send(json.dumps({**SHARED, **{k: x for k, x in SITE.items() if k != "site"}}))
@@ -967,6 +1005,10 @@ async function groups() {
   last().message(rich("6470", "6471", {"6470": 2, "6471": 1}));
   last().message(rich("6470", null, {"6470": 2}));         // the laptop took 6471 out
   out.released = {picker: els.picker.hidden, ...field()};
+  const lk = rich("6470", null, {"6460": 2});                  // 6461 locked on the laptop
+  lk.spots.find(s => s.name === "6461").locked = true;
+  last().message(lk);
+  out.lockedArea = {items: items(), area: els.camarea.textContent};
 }
 """
 
@@ -1069,6 +1111,9 @@ def test_page_large_site_area_then_camera(tmp_path):
                                "go": "", "who": "player 1 · pick a camera"}
     assert out["again"] == {"picker": False, "name": "pick a camera", "area": "4 free", "go": "",
                             "who": "player 1 · pick a camera"}
+    assert out["lockedArea"] == {"items": [["Bridge", "3 cameras · 1 taken · 1 locked", False, False],
+                                           ["Green", "2 cameras", False, False]],
+                                 "area": "3 free"}                 # locked: told apart from taken
 
 
 # --------------------------------------------------------------------------- QR, addresses, CLI
@@ -1253,8 +1298,13 @@ def test_a_steering_phone_rolled_about_its_screen_turns_smoothly():
     assert "if (held == null) held = holdAngle(e.alpha, e.beta, e.gamma, null, screenAngle());" in page
     assert "held = holdAngle(e.alpha, e.beta, e.gamma, null, held" not in page   # not at each reading
     zero = page.split('ui.zero.addEventListener("click"')[1].split("});")[0]
-    assert "if (h !== held && sendPose(q, \"ok\")) { held = h; lastQ = q; draw(); }" in zero
-    assert zero.index("sendPose(q") < zero.index('send({type: "zero"')   # Live's zero in the new hold
+    # Live's zero in the new hold: the pose rides in the zero (one message, one step in Live); the
+    # hold changes only when it was sent
+    assert 'if (send({type: "zero", pose: poseMsg(q, "ok")})) { held = h; lastQ = q; sent++; draw(); }' in zero
+    assert "sendPose(" not in zero
+    live = (live_hub.PHONE_WEB.parent / "desktop_web" / "live" / "live.js").read_text(encoding="utf-8")
+    on_zero = live.split("onZero: (m) => {")[1].split("onHub:")[0]
+    assert on_zero.index("if (m.pose) onPose(") < on_zero.index("zero(s.inp.phoneSrc, s)")
 
 
 def test_phone_gain_runs_0_1_to_3_and_its_ticks_sit_on_their_values():
