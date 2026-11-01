@@ -351,7 +351,7 @@ def export_clouds(out: Path, cams: list[dict], origin, z0: float | None, labels:
                     "rough": bool(meta.get("rough")), "ply": str(ply), "houdini": str(hou), "P": P, "rgb": rgb})
         log(f"point cloud: {label}: {len(P)} points -> cloud/{ply.name}, houdini/{hou.name}")
     if not res:
-        log("point cloud: no camera here has one (Live: Show > Point cloud > Make)")
+        log("point cloud: no camera here has one (Live: the Point cloud layer's Make, or live-cloud)")
     return res
 
 

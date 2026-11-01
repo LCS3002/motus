@@ -908,6 +908,16 @@ def test_passes_menu_one_camera_alone_and_the_collage():
     assert "for (const k of Object.keys(POPS)) $(POPS[k][1]).onclick = () => togglePop(k);" in js
     assert all(f'id="{i}"' in drawing for i in ("passes", "pass-undo", "pass-clear", "pass-stack", "pass-menu-btn"))
     assert all(f'id="out-{i}"' in output for i in ("scope", "pass", "sheet", "all", "rhino", "houdini", "geojson", "video", "op"))
+    # 1 Nov: Sheet and Video first, the files for other tools folded under Extras (remembered here)
+    first, more = output.split('id="out-more"')
+    assert [b.split('"')[0] for b in first.split('id="out-')[1:] if b.startswith(("sheet", "video", "extras", "all"))] == [
+        "sheet", "video", "extras"]
+    assert 'class="out-do out-more" ' in first and more.startswith(" hidden>")
+    assert [b.split('"')[0] for b in more.split('id="out-')[1:]][:4] == ["all", "rhino", "houdini", "geojson"]
+    assert 'aria-expanded="false" aria-controls="out-more"' in first and 'key = "motus-live-out-extras"' in js
+    # the point cloud a layer under the cameras' (its eye; off), no more a Display > Show checkbox
+    assert 'id="cloud-layer" hidden' in cams and 'id="cloud-eye" aria-pressed="false"' in cams and 'id="cloud-row" hidden' in cams
+    assert "cloud" not in display and 'data-layer="cloud"' not in page
     assert all(f'data-group="{g}"' in display for g in ("trails", "ground", "under", "look", "section"))
     assert 'id="help"' in helps and "the layers together are the collage" in helps
     assert all('data-fold="' in p and 'class="fold-h" aria-expanded="false"' in p for p in (display, helps))   # folded

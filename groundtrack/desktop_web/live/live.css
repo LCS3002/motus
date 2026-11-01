@@ -186,6 +186,11 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 9px; 
 /* output: what (collage, the selected camera, a saved pass), then the formats */
 .out-do { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .out-do .btn { min-width: 0; padding: 0 4px; }
+.out-do[hidden] { display: none; }
+.out-more { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.out-extras { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.out-extras svg { width: 9px; height: 9px; color: var(--muted); transition: transform var(--t) var(--ease); }
+.out-extras[aria-expanded="true"] svg { transform: rotate(90deg); }
 .out-pass { appearance: none; -webkit-appearance: none; height: 26px; border: 1px solid var(--line); background: var(--bg);
             padding: 0 8px; font: var(--t-mono); color: var(--fg-2); min-width: 0; }
 #scene-out.flash { animation: out-flash 900ms var(--ease); }
@@ -295,7 +300,15 @@ select option { background: var(--bg); color: var(--fg); }
 /* the Sheet button's hidden page (09): renders the pass's view for its sheet, never seen */
 .sheet-frame { position: fixed; right: 0; bottom: 0; width: 4px; height: 4px; border: 0; opacity: 0; pointer-events: none; }
 
-/* Show > Point cloud's row (11): only while it is on */
-.cloud-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 4px 0 2px 22px; }
+/* the Point cloud layer (11), under the cameras': its eye, a dotted swatch; its row only while it is on */
+.cloud-layer { display: grid; gap: 6px; }
+.cloud-layer[hidden] { display: none; }
+.cloud-layer > .layer { border: 1px solid var(--line); }
+.cloud-layer .cloud-nm { cursor: default; }
+.cloud-layer .cloud-nm:hover { background: none; color: var(--fg-2); }
+.cloud-layer .sw { background: repeating-linear-gradient(90deg, var(--fg-2) 0 1px, transparent 1px 3px); }
+.cloud-layer.off .cloud-nm { opacity: 0.45; }
+.cloud-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 2px 28px; }
 .cloud-row[hidden] { display: none; }
 .cloud-row #cloud-st { flex: 1 1 100%; color: var(--muted); }
+.cloud-row #cloud-st:empty { display: none; }

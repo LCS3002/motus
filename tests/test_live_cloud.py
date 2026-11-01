@@ -194,7 +194,9 @@ def test_nothing_loads_the_cloud_unless_it_is_asked_for():
 def test_live_shows_the_cloud_only_while_its_switch_is_on():
     js, html = _text(LIVE / "live.js"), _text(LIVE / "live.html")
     assert 'cloud: params.get("cloud") === "1" }' in js                # off unless asked
-    assert '<input type="checkbox" data-layer="cloud"> Point cloud' in html   # not checked
+    assert 'id="cloud-eye" aria-pressed="false"' in html and 'data-layer="cloud"' not in html   # its layer's eye: off
+    eye = js.split('$("#cloud-eye").onclick = () => {')[1].split("\n  };")[0]
+    assert "S.layers.cloud = !S.layers.cloud;" in eye and "setLayers();" in eye
     sc = js.split("function syncCloud(s) {")[1].split("\n}\n")[0]
     assert sc.lstrip().startswith("if (!S.layers.cloud) { dropCloud(s); return; }")
     # its code too: loaded only once on (here, and in Realtime's poll, which runs only while it is on)

@@ -90,6 +90,22 @@
   <h2 class="part-h label">Layers <span class="key">Tab</span></h2>
   <section id="spots">
     <div class="spot-list" id="spot-list" aria-label="The cameras in the scene"></div>
+    <!-- the point cloud (11) as a layer: its eye on / off (off by default: nothing of it runs while off);
+         its look, Make and Realtime's switch under it while it is on -->
+    <div class="cloud-layer" id="cloud-layer" hidden>
+      <div class="layer"><button class="lyr-eye" id="cloud-eye" aria-pressed="false"
+              title="The surroundings as points: depth from each camera's video, fitted to its calibrated ground; people left out. Off by default: nothing of it runs while off. On: the exports carry it too"></button><span
+              class="spot cloud-nm"><span class="sw"></span><span class="nm">Point cloud</span><span class="who label" id="cloud-who">off</span></span><span></span></div>
+      <div class="cloud-row" id="cloud-row" hidden>
+        <span class="label" id="cloud-st"></span>
+        <div class="opts" data-group="cloudlook">
+          <button data-v="grey" title="Light points: the drafting look">Grey</button>
+          <button data-v="colour" title="The (blurred) video's colours">Colour</button>
+        </div>
+        <button id="cloud-make" hidden title="Make the cloud of each site camera in the scene without one (a minute or so each, on the GPU)">Make</button>
+        <button id="cloud-rt" hidden title="Realtime: the laptop makes a rough cloud while it records (a depth frame now and then, in its own thread; the depth model on the GPU). Kept for the next start">Make while recording</button>
+      </div>
+    </div>
     <div class="row layer-bar">
       <button class="btn sm" id="cam-add" aria-haspopup="menu" aria-expanded="false" aria-controls="cam-menu"
               title="Another of the site's cameras into the scene, as the mouse's camera (no phone needed); the cameras before keep running">+ Camera</button>
@@ -139,11 +155,15 @@
     <p class="hint" id="out-what"></p>
     <div class="out-do">
       <button class="btn sm" id="out-sheet" title="The sheet: the drawing on top, the score of the plays that made it below (light, PDF + PNG)">Sheet</button>
+      <button class="btn sm" id="out-video" title="A video of the pass replayed, from the view as it is now">Video</button>
+      <button class="btn sm out-extras" id="out-extras" aria-expanded="false" aria-controls="out-more"
+              title="The files for other tools: Rhino, Houdini, GeoJSON, or all of them (open / fold)">Extras<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" stroke-width="1"/></svg></button>
+    </div>
+    <div class="out-do out-more" id="out-more" hidden>
       <button class="btn sm" id="out-all" title="Rhino, Houdini and GeoJSON in one go (the play being drawn is saved first)">All</button>
       <button class="btn sm" id="out-rhino" title="A Rhino model (.3dm + Grasshopper script)">Rhino</button>
       <button class="btn sm" id="out-houdini" title="A Houdini POP kit (its field), the scene built in the background">Houdini</button>
       <button class="btn sm" id="out-geojson" title="The points, tracks (GeoJSON, EPSG:27700), camera path and Houdini curves">GeoJSON</button>
-      <button class="btn sm" id="out-video" title="A video of the pass replayed, from the view as it is now">Video</button>
     </div>
     <p class="pass-op mono" id="out-op" hidden></p>
   </section>
@@ -180,16 +200,6 @@
     <label class="check" title="A calm grid of ground points that shows how the ground is dragged as the camera turns"><input type="checkbox" data-layer="drag"> Drag grid</label>
     <label class="check" title="V: re-framed (the recording stays put, the violet frame moves over it) / glued / off"><input type="checkbox" data-layer="video" checked> Video plane</label>
     <label class="check" title="The cameras drawn in the scene: the start camera as a white ghost, each virtual camera in its tint"><input type="checkbox" data-layer="cameras" checked> Cameras</label>
-    <label class="check" title="The surroundings as points: depth from each camera's video, fitted to its calibrated ground; people left out. Off by default: nothing of it runs while off"><input type="checkbox" data-layer="cloud"> Point cloud</label>
-    <div class="cloud-row" id="cloud-row" hidden>
-      <span class="label" id="cloud-st"></span>
-      <div class="opts" data-group="cloudlook">
-        <button data-v="grey" title="Light points: the drafting look">Grey</button>
-        <button data-v="colour" title="The (blurred) video's colours">Colour</button>
-      </div>
-      <button id="cloud-make" hidden title="Make the cloud of each site camera in the scene without one (a minute or so each, on the GPU)">Make</button>
-      <button id="cloud-rt" hidden title="Realtime: the laptop makes a rough cloud while it records (a depth frame now and then, in its own thread; the depth model on the GPU). Kept for the next start">Make while recording</button>
-    </div>
   </section>
   <section>
     <h3 class="label">Look</h3>
@@ -220,7 +230,7 @@
     <p class="hint">Space play · ← → a frame (Shift: 10) · Tab the next camera · O focus · W whole scene · I solo · B video boxes · X clear its layer · Z zero · G / Shift+G gain · J smooth · M hold: turn the space (M M: level) · K stack · L saved passes · S section · C cause · U below the ground · V video · 1–4 views · H HUD · P panel · F full screen</p>
     <p class="hint">Mouse: right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move</p>
     <p class="hint">A play is drawn, saved as a pass, and leaves a layer on each camera it drew; the layers together are the collage.</p>
-    <p class="hint">Layers: every camera in the scene runs at once (one nobody moves holds its pose and draws) · click a camera (or Shift+click it in the 3D view) to move it with the mouse · Shift+click its row, or double Shift+click it in the 3D view: focus · the eye hides it in the view (and the collage's output) · the padlock is the one way to stop a camera: nobody moves it, it does not draw, and Clear and Remove leave its layer (Undo and Load too, once you locked it) · the cameras a Load, an Undo or a replay brings back come in locked: unlock one to put it in play.</p>
+    <p class="hint">Layers: every camera in the scene runs at once (one nobody moves holds its pose and draws) · click a camera (or Shift+click it in the 3D view) to move it with the mouse · Shift+click its row, or double Shift+click it in the 3D view: focus · the eye hides it in the view (and the collage's output) · the padlock is the one way to stop a camera: nobody moves it, it does not draw, and Clear and Remove leave its layer (Undo and Load too, once you locked it) · the cameras a Load, an Undo or a replay brings back come in locked: unlock one to put it in play · Point cloud: the layer under the cameras, its eye on / off (off by default: nothing of it runs; on, the exports carry it).</p>
   </section>
   </div>
 </aside>

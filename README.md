@@ -197,7 +197,9 @@ motus app                               # motus live from the start menu; phones
   stack or undo passes, or render one to an MP4.
 * **Sheets:** `motus live-sheet <run> <id>` draws the finished drawing (view, plan,
   sections) over a score of how it was played, as PDF and PNG, black or light.
-* **Exports:** `motus live-pass-export <run> <id> --rhino --houdini` writes what the machine
+* **Output:** the collage, the selected camera's layer or a saved pass, as a Sheet or (a pass) a
+  Video; Extras holds the files for other tools (All, Rhino, Houdini, GeoJSON).
+  `motus live-pass-export <run> <id> --rhino --houdini` writes what the machine
   drew as a run (points, GeoJSON, the camera path, Houdini curves and field, Rhino, a POP kit), so
   the tools below take it like any other run.
 * **Realtime:** one phone films and the laptop tracks it as it comes (YOLO + ByteTrack on the
@@ -213,9 +215,10 @@ motus app                               # motus live from the start menu; phones
   the saved recordings open from Live's site menu.
 * **Point cloud (optional, off by default):** a cloud of the surroundings from monocular depth
   (Depth Anything V2, `pip install -e ".[cloud]"`), fitted to the calibrated ground, people left
-  out. A site: `motus live-cloud <run>` (or Make in Live's cloud row). Realtime: Point cloud On on
-  its setup page builds a rough cloud while it records, saved at Stop. Live shows it under Show >
-  Point cloud. While that is on, the pass and collage exports also write each camera's cloud:
+  out; meant as context. In Live it is a layer under the cameras: its eye turns it on, with Grey /
+  Colour and Make (a site camera without one) under it. A site: `motus live-cloud <run>` or Make.
+  Realtime: Point cloud On on its setup page (or Make while recording) builds a rough cloud while
+  it records, saved at Stop. While its eye is on, the pass and collage exports also write each camera's cloud:
   `cloud/<camera>.ply` (as the Rhino model, Z up), `houdini/cloud_<camera>.ply` (Y up, as the
   curves) and a `point cloud` layer in the `.3dm` (`--cloud` on the command line). Off, nothing of
   it runs and the exports are as before.
