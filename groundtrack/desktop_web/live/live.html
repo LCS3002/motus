@@ -103,6 +103,8 @@
           <button data-v="colour" title="The (blurred) video's colours">Colour</button>
         </div>
         <button id="cloud-make" hidden title="Make the cloud of each site camera in the scene without one (a minute or so each, on the GPU)">Make</button>
+        <button id="cloud-sharpen" hidden title="Sharpen each Realtime recording's cloud from its walk, after Stop: VGGT on the GPU, a few minutes each (the first time it downloads its 5 GB model). Pinned to the recording's calibration, people left out. The cloud only: the tracks, the cameras and the calibration stay as they are. The rough cloud is kept">Sharpen</button>
+        <button id="cloud-rough" hidden title="Back to the rough cloud made while it recorded (the sharpened one goes; Sharpen makes it again)">Rough</button>
         <button id="cloud-rt" hidden title="Realtime: the laptop makes a rough cloud while it records (a depth frame now and then, in its own thread; the depth model on the GPU). Kept for the next start">Make while recording</button>
       </div>
     </div>
@@ -230,7 +232,7 @@
     <p class="hint">Space play · ← → a frame (Shift: 10) · Tab the next camera · O focus · W whole scene · I solo · B video boxes · X clear its layer · Z zero · G / Shift+G gain · J smooth · M hold: turn the space (M M: level) · K stack · L saved passes · S section · C cause · U below the ground · V video · 1–4 views · H HUD · P panel · F full screen</p>
     <p class="hint">Mouse: right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move</p>
     <p class="hint">A play is drawn, saved as a pass, and leaves a layer on each camera it drew; the layers together are the collage.</p>
-    <p class="hint">Layers: every camera in the scene runs at once (one nobody moves holds its pose and draws) · click a camera (or Shift+click it in the 3D view) to move it with the mouse · Shift+click its row, or double Shift+click it in the 3D view: focus · the eye hides it in the view (and the collage's output) · the padlock is the one way to stop a camera: nobody moves it, it does not draw, and Clear and Remove leave its layer (Undo and Load too, once you locked it) · the cameras a Load, an Undo or a replay brings back come in locked: unlock one to put it in play · Point cloud: the layer under the cameras, its eye on / off (off by default: nothing of it runs; on, the exports carry it).</p>
+    <p class="hint">Layers: every camera in the scene runs at once (one nobody moves holds its pose and draws) · click a camera (or Shift+click it in the 3D view) to move it with the mouse · Shift+click its row, or double Shift+click it in the 3D view: focus · the eye hides it in the view (and the collage's output) · the padlock is the one way to stop a camera: nobody moves it, it does not draw, and Clear and Remove leave its layer (Undo and Load too, once you locked it) · the cameras a Load, an Undo or a replay brings back come in locked: unlock one to put it in play · Point cloud: the layer under the cameras, its eye on / off (off by default: nothing of it runs; on, the exports carry it) · a Realtime recording's: Sharpen, after Stop, remakes it from the walk (a few minutes on the GPU; the cloud only), Rough brings back the one made while it recorded.</p>
   </section>
   </div>
 </aside>

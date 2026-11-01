@@ -2311,9 +2311,15 @@ $("#new-code").onclick = async () => {
 
 // ---------------------------------------------------------------------------- the point cloud's row (11)
 let cloudBusy = false;
+/** A Realtime recording after Stop whose cloud is the rough one made while it recorded, or none:
+    Sharpen makes it from the walk (step 3, VGGT). walked: one sharpened, its rough one kept. */
+const sharpenable = (s) => !!(s.meta.realtime && !s.growing && s.cloud
+  && (s.cloud.state === "none" || (s.cloud.state === "on" && s.cloud.head && s.cloud.head.source !== "walk")));
+const walked = (s) => !!(s.meta.realtime && s.cloud && s.cloud.head && s.cloud.head.source === "walk"
+  && s.cloud.head.walk && s.cloud.head.walk.rough_kept);
 /** The Point cloud layer (under the cameras' layers; 1 Nov, was Display > Show): its eye, and while it
-    is on its row: how many cameras in the scene have a cloud; Make for the site cameras without one (a
-    Realtime recording's is made while it records). */
+    is on its row: how many cameras in the scene have a cloud; Make for the site cameras without one;
+    Sharpen for the Realtime recordings (after Stop), Rough back to the one made while it recorded. */
 function syncCloudPanel() {
   const lyr = $("#cloud-layer"), row = $("#cloud-row");
   if (!lyr || !row) return;
@@ -2326,6 +2332,7 @@ function syncCloudPanel() {
   $("#cloud-who").textContent = !S.layers.cloud ? "off" : loading ? "loading" : L ? `${shown} of ${all.length}` : "on";
   if (row.hidden) return;
   const missing = all.filter((s) => s.cloud && s.cloud.state === "none" && !s.meta.realtime);
+  const sharpen = all.filter(sharpenable), rough = all.filter(walked);
   const rtc = REALTIME && RT.st && RT.st.cloud, making = !!(rtc && rtc.on);  // the laptop making one (step 2)
   const say = [!L ? "No recording yet" : missing.length ? `${missing.length} without one` : ""];   // (the count: its row)
   if (REALTIME) say.push(!making ? "Realtime: not making one"
@@ -2333,27 +2340,38 @@ function syncCloudPanel() {
     : rtc.state === "error" ? `Realtime: ${rtc.error}`
     : !RT.st.recording ? "Realtime: on, the next recording makes one"
     : `Realtime: making · ${(rtc.points || 0).toLocaleString()} points`);
-  else if (all.some((s) => s.meta.realtime && !(s.cloud && s.cloud.view))) say.push("Realtime: made while it records");
   if (!cloudBusy) $("#cloud-st").textContent = say.filter(Boolean).join(" · ");
   $("#cloud-rt").hidden = !REALTIME;
   $("#cloud-rt").textContent = making ? "Stop making" : "Make while recording";
   $("#cloud-rt").setAttribute("aria-pressed", String(making));
   $("#cloud-make").hidden = !missing.length;
   $("#cloud-make").disabled = cloudBusy;
-  $("#cloud-make").textContent = cloudBusy ? "Making…" : `Make ${missing.length}`;
+  $("#cloud-make").textContent = `Make ${missing.length}`;
+  $("#cloud-sharpen").hidden = !sharpen.length;
+  $("#cloud-sharpen").disabled = cloudBusy || !!(REALTIME && RT.st && RT.st.recording);   // (the GPU is Realtime's)
+  $("#cloud-sharpen").textContent = `Sharpen ${sharpen.length}`;
+  $("#cloud-rough").hidden = !rough.length;
+  $("#cloud-rough").disabled = cloudBusy;
 }
 
-/** Make: the site cameras in the scene without a cloud get one (`groundtrack live-cloud`, a job each). */
-async function makeClouds() {
+/** The cameras' cloud jobs one after another (`groundtrack live-cloud`, a job each), each camera's cloud
+    reloaded after its own: Make (the site cameras without one), Sharpen (the Realtime recordings', from
+    their walk: VGGT, a few minutes each) or Rough (back to the one made while it recorded). */
+const CLOUD_JOBS = {
+  make: { body: {}, what: "Cloud", done: "made", pick: (s) => s.cloud && s.cloud.state === "none" && !s.meta.realtime },
+  sharpen: { body: {}, what: "Sharpen", done: "sharpened", pick: sharpenable },
+  rough: { body: { rough: true }, what: "Rough", done: "back to rough", pick: walked },
+};
+async function cloudJobs(kind) {
   if (cloudBusy || !L) return;
-  const site = L, todo = [...L.spots, ...L.parked].filter((s) => s.cloud && s.cloud.state === "none" && !s.meta.realtime);
+  const job = CLOUD_JOBS[kind], site = L, todo = [...L.spots, ...L.parked].filter(job.pick);
   cloudBusy = true;
   syncCloudPanel();
   try {
     for (const [i, s] of todo.entries()) {
-      const what = `Cloud ${i + 1}/${todo.length} · ${s.name}`;
+      const what = `${job.what} ${i + 1}/${todo.length} · ${s.name}`;
       $("#cloud-st").textContent = `${what} · starting`;
-      const d = await postJson("/api/live/cloud", { run: s.run });
+      const d = await postJson("/api/live/cloud", { run: s.run, ...job.body });
       let j, n = 0;
       for (;;) {
         j = await fetchOk(`/api/job?id=${enc(d.id)}&since=${n}`, "json");
@@ -2364,9 +2382,9 @@ async function makeClouds() {
       }
       if (j.returncode !== 0) throw new Error(`${s.name}: ${(j.last || `exit ${j.returncode}`).slice(0, 160)}`);
       if (L !== site) return;
-      if (s.cloud && s.cloud.state === "none") { s.cloud = null; syncCloud(s); }
+      if (L.spots.includes(s) || L.parked.includes(s)) { dropCloud(s); syncCloud(s); }   // (still in the scene)
     }
-    flash(todo.length ? `Point cloud: ${todo.length} made` : "Point cloud: every camera has one");
+    flash(todo.length ? `Point cloud: ${todo.length} ${job.done}` : "Point cloud: nothing to do");
   } catch (e) { note(`Point cloud: ${e.message}`); flash(`Point cloud · ${e.message}`); }
   finally { cloudBusy = false; syncCloudPanel(); }
 }
@@ -2883,7 +2901,9 @@ function bindPanel() {
     flash(`Point cloud: ${S.layers.cloud ? "on · the exports carry it too" : "off"}`);
   };
   syncCloudPanel();                                          // (Realtime: shown before its first recording)
-  $("#cloud-make").onclick = () => makeClouds();
+  $("#cloud-make").onclick = () => cloudJobs("make");
+  $("#cloud-sharpen").onclick = () => cloudJobs("sharpen");
+  $("#cloud-rough").onclick = () => cloudJobs("rough");
   $("#cloud-rt").onclick = () => rtCloudSwitch();
   $("#zero").onclick = () => zero(null, shownSpot());
   $("#gain").oninput = (e) => { setGain(+e.target.value, shownSpot()); publishState(); };

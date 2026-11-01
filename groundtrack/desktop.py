@@ -460,16 +460,25 @@ class DesktopApp(App):
         return {**job.summary(), "dir": str(export_dir(run, pid))}
 
     def live_cloud(self, body: dict) -> dict:
-        """A site camera's point cloud (plans/live_controller/11; Live asks only with its cloud on):
-        `groundtrack live-cloud <run>` as a job, {run, remove}. A Realtime recording's is made while it
-        records, not here."""
+        """A camera's point cloud (plans/live_controller/11; Live asks only with its cloud on):
+        `groundtrack live-cloud <run>` as a job, {run, remove, rough}. A site camera's from depth per
+        frame; a Realtime recording's (after Stop) sharpened from its walk (VGGT, step 3), or back to
+        the rough one made while it recorded (rough). Not while Realtime records (the GPU is its)."""
         live = self.live_dir(str(body.get("run", "")))
         meta = json.loads((live / "scene.json").read_text(encoding="utf-8"))
-        if meta.get("realtime"):
-            raise ValueError("a Realtime recording: its cloud is made while it records")
-        args = ["live-cloud", str(live.parent)] + (["--remove"] if body.get("remove") else [])
-        what = "remove" if body.get("remove") else "make"
-        job = self.job_class("live-cloud", args, self.root, f"cloud · {meta.get('clip')} · {what}")
+        args = ["live-cloud", str(live.parent)]
+        what = "make"
+        if body.get("remove"):
+            args, what = args + ["--remove"], "remove"
+        elif meta.get("realtime"):
+            if meta.get("growing"):
+                raise ValueError("the recording is still recording or saving: sharpen its cloud after Stop")
+            rt = self._realtime
+            if rt is not None and rt.status().get("recording"):
+                raise ValueError("Realtime is recording: sharpen the cloud once it stops")
+            args, what = (args + ["--rough"], "rough") if body.get("rough") else (args, "sharpen")
+        job = self.job_class("live-cloud", args, self.root,
+                             f"cloud · {meta.get('clip') or live.parent.name} · {what}")
         self.jobs[job.id] = job
         return job.summary()
 

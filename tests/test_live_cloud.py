@@ -170,12 +170,12 @@ def test_a_site_cloud_refuses_realtime_and_unblurred_packages(tmp_path):
 # --------------------------------------------------------------------------- the switch: off by default
 def test_nothing_loads_the_cloud_unless_it_is_asked_for():
     """Off: no module imports live_cloud at load (only inside the CLI's command, Realtime's switch and
-    the exports' clouds, asked for), and live_cloud itself loads neither torch nor transformers until a
+    the exports' clouds, asked for; live_walk, itself loaded only by the CLI's command), and live_cloud itself loads neither torch nor transformers until a
     cloud is made."""
     imports = ("from .live_cloud", "import live_cloud", "groundtrack.live_cloud", "from . import live_cloud")
     users = sorted(p.name for p in PKG.glob("*.py") if p.name != "live_cloud.py"
                    and any(i in p.read_text(encoding="utf-8") for i in imports))
-    assert users == ["cli.py", "live_pass_export.py", "live_track.py"]
+    assert users == ["cli.py", "live_pass_export.py", "live_track.py", "live_walk.py"]
     cli, lt = _text(PKG / "cli.py"), _text(PKG / "live_track.py")
     assert cli.count("from .live_cloud import") == 1 == lt.count("from .live_cloud import")
     assert "from .live_cloud import" in cli.split("def cmd_live_cloud(args):")[1].split("\ndef ")[0]
@@ -208,7 +208,16 @@ def test_live_shows_the_cloud_only_while_its_switch_is_on():
     assert js.count("/api/live/realtime/cloud") == 1
     assert 'cloud: rtCloudWanted() });' in js and '=== "1"; } catch { return false; } };' in js   # off unless kept on
     assert js.count('pkg(s.run, "cloud.') == 2 and 'pkg(s.run, "cloud.json")' in sc and 'pkg(s.run, "cloud.bin")' in sc
-    assert "/api/live/cloud" in js.split("async function makeClouds() {")[1].split("\n}\n")[0]
+    jobs = js.split("async function cloudJobs(kind) {")[1].split("\n}\n")[0]
+    assert "/api/live/cloud" in jobs and "dropCloud(s); syncCloud(s);" in jobs              # reloaded after its job
+    for kind in ("make", "sharpen", "rough"):
+        assert f'$("#cloud-{kind}").onclick = () => cloudJobs("{kind}");' in js
+    assert 'rough: { body: { rough: true },' in js and 'sharpen: { body: {}, what: "Sharpen", done: "sharpened", pick: sharpenable },' in js
+    # Sharpen: a Realtime recording after Stop (not one still recording), its cloud rough or none; not while Realtime records
+    sh = js.split("const sharpenable = (s) =>")[1].split(";\n")[0]
+    assert "s.meta.realtime && !s.growing" in sh and 's.cloud.head.source !== "walk"' in sh
+    assert '$("#cloud-sharpen").disabled = cloudBusy || !!(REALTIME && RT.st && RT.st.recording);' in js
+    assert 'id="cloud-sharpen" hidden' in html and 'id="cloud-rough" hidden' in html
     assert js.count("/api/live/cloud") == 1
     assert "dropCloud(s);\n  scene3.remove(s.group);" in js                   # a camera leaving takes its cloud
     assert "L.section.register(view.material);" in sc                         # the section cuts it too
@@ -219,7 +228,11 @@ def test_the_app_serves_the_cloud_and_makes_it_as_a_job():
     d = _text(PKG / "desktop.py")
     assert '"cloud.json", "cloud.bin"}' in d and '"/api/live/cloud": app.live_cloud,' in d
     body = d.split("def live_cloud(self, body: dict) -> dict:")[1].split("\n    def ")[0]
-    assert 'args = ["live-cloud", str(live.parent)]' in body and 'if meta.get("realtime"):' in body
+    assert 'args = ["live-cloud", str(live.parent)]' in body and 'elif meta.get("realtime"):' in body
+    # a Realtime recording's: sharpened after Stop only, never while Realtime records (the GPU is its)
+    rt_part = body.split('elif meta.get("realtime"):')[1]
+    assert 'if meta.get("growing"):' in rt_part and 'rt.status().get("recording")' in rt_part
+    assert '(args + ["--rough"], "rough") if body.get("rough") else (args, "sharpen")' in rt_part
     # Realtime: the switch (start takes it too) and the view's feed while it records
     rt = d.split("    def live_realtime(self, body: dict) -> dict:")[1].split("\n    def ")[0]
     assert 'self._realtime.set_cloud(body["cloud"] is True)' in rt and 'self._realtime.set_cloud(body.get("on") is True)' in rt
@@ -231,6 +244,9 @@ def test_the_app_serves_the_cloud_and_makes_it_as_a_job():
     from groundtrack.cli import build_parser
     a = build_parser().parse_args(["live-cloud", "runs/x/v1", "--frames", "12", "--remove"])
     assert (a.frames, a.voxel, a.remove, a.func.__name__) == (12, 0.10, True, "cmd_live_cloud")
+    a = build_parser().parse_args(["live-cloud", "runs/live/x"])
+    assert (a.rate, a.rough) == (2.0, False)
+    assert build_parser().parse_args(["live-cloud", "runs/live/x", "--rate", "3", "--rough"]).rough is True
 
 
 @V.needs_node

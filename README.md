@@ -161,7 +161,7 @@ only stages 3–6 with `motus process -c <site>.yaml --run latest`.
 | `live-hub` | the phone controller's hub on its own (Live in the app starts it) |
 | `live-sheet` | a saved pass's performance sheet |
 | `live-pass-export` / `live-layers-export` | a saved pass / the Live collage's layers, as a run (`--cloud`: with the point clouds) |
-| `live-cloud` | a site camera's point cloud (optional, the `cloud` extra) |
+| `live-cloud` | a site camera's point cloud, or a Realtime recording's from its walk (optional, the `cloud` extra; VGGT) |
 
 Every command takes `--help`. Every option of a site config, with comments, is in
 `groundtrack/config.py` (`DEFAULTS`).
@@ -218,7 +218,13 @@ motus app                               # motus live from the start menu; phones
   out; meant as context. In Live it is a layer under the cameras: its eye turns it on, with Grey /
   Colour and Make (a site camera without one) under it. A site: `motus live-cloud <run>` or Make.
   Realtime: Point cloud On on its setup page (or Make while recording) builds a rough cloud while
-  it records, saved at Stop. While its eye is on, the pass and collage exports also write each camera's cloud:
+  it records, saved at Stop. After Stop, **Sharpen** remakes a recording's cloud from its walk
+  (VGGT-1B on the GPU, a few minutes; 5 GB of model the first time): frames twice a second, the
+  phone's moving position worked out for the cloud only (the tracks, cameras and calibration stay
+  as they are), pinned to the calibration (its start, ground and height), people left out; the
+  rough one is kept (**Rough** brings it back; `motus live-cloud runs/live/<id>`, `--rough`). VGGT:
+  `pip install --no-deps "vggt @ git+https://github.com/facebookresearch/vggt.git@a288dd0f14786c93483e45524328726ab7b1b4ce"`
+  (`--no-deps`: it asks for numpy<2 but runs on 2; its weights are for non-commercial use). While its eye is on, the pass and collage exports also write each camera's cloud:
   `cloud/<camera>.ply` (as the Rhino model, Z up), `houdini/cloud_<camera>.ply` (Y up, as the
   curves) and a `point cloud` layer in the `.3dm` (`--cloud` on the command line). Off, nothing of
   it runs and the exports are as before.

@@ -15,8 +15,8 @@ Points are merged on a voxel grid (mean position and colour, the count).
 Realtime (step 2, RealtimeCloud / CloudBuilder): while a recording runs with the cloud on, its own
 thread makes a depth frame now and then (the phone turned to new ground), placed from the recorder's
 fixed position turned as the phone was, fitted to the flat ground: a rough cloud, shown in Live as it
-grows and written into the package at Stop. The accurate one (the recorder's walk followed, for the
-cloud only) is step 3.
+grows and written into the package at Stop. The sharp one (the recorder's walk worked out from the
+video, for the cloud only) is step 3: live_walk.py, after Stop, when asked.
 
 Files, beside the package (<run>/live/):
     cloud.bin   packed little-endian records CLOUD_DTYPE: x, y, z f32 (the package's frame, as the
@@ -50,6 +50,7 @@ FORMAT, VERSION = "motus-cloud", 1
 CLOUD_DTYPE = np.dtype([("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("r", "u1"), ("g", "u1"), ("b", "u1"),
                         ("n", "u1")])
 FILES = ("cloud.bin", "cloud.json", "cloud.ply")
+ROUGH_FILES = ("cloud_rough.bin", "cloud_rough.json", "cloud_rough.ply")   # a Realtime one, kept when sharpened
 STEP = 2                     # every STEP-th pixel (1920 x 1080 -> 960 x 540)
 FRAMES = 24                  # a still camera's frames, spread over its clip
 VOXEL_M = 0.10               # the merged cloud's voxel
@@ -301,7 +302,7 @@ def read_cloud(live: Path) -> tuple[dict, np.ndarray]:
 
 
 def remove_cloud(live: Path) -> None:
-    for f in FILES:
+    for f in FILES + ROUGH_FILES:
         (Path(live) / f).unlink(missing_ok=True)
 
 
@@ -383,7 +384,8 @@ def make_site_cloud(run: Path, frames: int = FRAMES, voxel: float = VOXEL_M, dep
     live = Path(run) / "live"
     meta = json.loads((live / "scene.json").read_text(encoding="utf-8"))
     if meta.get("realtime"):
-        raise ValueError("a Realtime recording: its cloud is made while it records (plans/live_controller/11)")
+        raise ValueError("a Realtime recording: its cloud is made while it records, or sharpened from its walk "
+                         "after Stop (live_walk.py)")
     vid = meta.get("video") or {}
     if not vid.get("blurred"):
         raise ValueError(f"{live}: the package's video is not blurred: no cloud from it")

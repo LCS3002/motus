@@ -336,13 +336,25 @@ def cmd_live_sheet(args):
 
 
 def cmd_live_cloud(args):
-    """<run>/live/cloud.bin / .json / .ply: a site camera's point cloud (live_cloud.py; off unless asked)."""
+    """<run>/live/cloud.bin / .json / .ply: a site camera's point cloud (live_cloud.py), or a Realtime
+    recording's from its walk (live_walk.py, VGGT); off unless asked."""
     from .live_cloud import make_site_cloud, remove_cloud
 
+    live = Path(args.run) / "live"
     if args.remove:
-        remove_cloud(Path(args.run) / "live")
-        print(f"cloud removed: {Path(args.run) / 'live'}")
+        remove_cloud(live)
+        print(f"cloud removed: {live}")
         return
+    if json.loads((live / "scene.json").read_text(encoding="utf-8")).get("realtime"):
+        from .live_walk import make_walk_cloud, restore_rough
+
+        if args.rough:
+            print(f"the rough cloud back: {live}" if restore_rough(live) else f"no rough cloud kept: {live}")
+            return
+        make_walk_cloud(Path(args.run), rate=args.rate, voxel=args.voxel)
+        return
+    if args.rough:
+        raise SystemExit("--rough: only a Realtime recording keeps a rough cloud")
     make_site_cloud(Path(args.run), frames=args.frames, voxel=args.voxel)
 
 
@@ -678,10 +690,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_live_sheet)
 
     s = sub.add_parser("live-cloud", help="a point cloud of a site camera's surroundings (depth per frame "
-                                          "fitted to its calibrated ground; people left out): <run>/live/cloud.*; "
-                                          "needs the extra [cloud]")
-    s.add_argument("run", help="the run whose live package gets the cloud (runs/<site>/<run>)")
-    s.add_argument("--frames", type=int, default=24, help="frames spread over the clip (default 24)")
+                                          "fitted to its calibrated ground; people left out), or of a Realtime "
+                                          "recording's walk after Stop (VGGT, pinned to its calibration; the "
+                                          "rough one kept): <run>/live/cloud.*; needs the extra [cloud]")
+    s.add_argument("run", help="the run whose live package gets the cloud (runs/<site>/<run>, or runs/live/<id>)")
+    s.add_argument("--frames", type=int, default=24, help="a site camera: frames spread over the clip (default 24)")
+    s.add_argument("--rate", type=float, default=2.0, help="a Realtime walk: frames a second of it (default 2)")
+    s.add_argument("--rough", action="store_true",
+                   help="a Realtime walk: back to the rough cloud made while it recorded")
     s.add_argument("--voxel", type=float, default=0.10, help="the merged cloud's voxel, m (default 0.10)")
     s.add_argument("--remove", action="store_true", help="delete the run's cloud files instead")
     s.set_defaults(func=cmd_live_cloud)
