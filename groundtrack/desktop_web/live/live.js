@@ -113,8 +113,9 @@ const SHEET = params.has("sheet") ? { id: params.get("sheet"), names: new Set(),
    (st), the recording open (id), its points so far (n), done (the recorder stopped and its last
    points are in), the people check shown for (checked). */
 const REALTIME = params.get("realtime") === "1" && !SHEET;
-const RT = { st: null, id: null, n: 0, done: false, gone: false, opening: false, tBusy: false, pBusy: false, checked: null, refAt: 0 };
-const RT_STATUS_MS = 250, RT_TRACKS_MS = 120, RT_PREVIEW_MS = 120, RT_REF_MS = 2000;
+const RT = { st: null, id: null, n: 0, done: false, gone: false, opening: false, tBusy: false, pBusy: false, checked: null, refAt: 0,
+             cBusy: false, cloudAt: 0 };
+const RT_STATUS_MS = 250, RT_TRACKS_MS = 120, RT_PREVIEW_MS = 120, RT_REF_MS = 2000, RT_CLOUD_MS = 1500;
 
 // ---------------------------------------------------------------------------- the stage
 const canvas = $("#gl");
@@ -138,7 +139,9 @@ const S = {                                     // the view's settings
   ground: ["A", "B", "C"].includes(params.get("ground")) ? params.get("ground") : REALTIME ? "C" : "B",   // B: dark contours (the user's pick); a recording has no aerial: C
   look: params.get("look") === "projector" ? "projector" : "laptop",
   layers: { ref: params.get("ref") === "1" || params.get("truth") === "1", drag: params.get("drag") === "1",
-            video: !["0", "off"].includes(params.get("video")), cameras: true, cause: params.get("cause") === "1" },
+            video: !["0", "off"].includes(params.get("video")), cameras: true, cause: params.get("cause") === "1",
+            cloud: params.get("cloud") === "1" },        // the point cloud (11): off by default, fetched only while on
+  cloudLook: params.get("cloudlook") === "colour" ? "colour" : "grey",
   video: params.get("video") === "glued" ? "glued" : "reframed",   // the video plane when shown (V)
   under: UNDER.includes(params.get("under")) ? params.get("under") : "veil",   // the crowd below the ground (U; the user's pick: veil)
   view: 2,
@@ -290,6 +293,7 @@ function buildSpot(raw, cam, start, tintI) {
 const spotMaterials = (s) => [s.ground.material, ...s.cams.materials(), ...s.tracks.materials(), ...s.drag.materials()];
 
 function disposeSpot(s) {
+  dropCloud(s);
   scene3.remove(s.group);
   s.ground.dispose(); s.cams.dispose(); s.tracks.dispose(); s.drag.dispose();
   if (s.pool) { s.pool.close(); s.pool = null; }
@@ -1993,6 +1997,7 @@ async function collageExport(name = null, fmt = "all", force = false) {
 // ---------------------------------------------------------------------------- the look
 function lookSpot(s, k = 1) {                   // k: widths for print (sheetView)
   const K = LOOKS[S.look];
+  if (s.cloud && s.cloud.view) { s.cloud.view.setLook(S.look); s.cloud.view.setMode(S.cloudLook); }
   s.ground.setLook(S.look);
   s.ground.setMode(S.ground);
   s.ground.setUnder(S.under);
@@ -2024,6 +2029,37 @@ function layersSpot(s) {
   s.cams.ghost.group.visible = S.layers.cameras;
   s.cams.virt.group.visible = S.layers.cameras;
   if (S.layers.drag) s.poseVersion = -1;        // draw it now
+  syncCloud(s);
+}
+
+/* Show > Point cloud (plans/live_controller/11; off by default): a camera's cloud (its package's
+   cloud.bin, live_cloud.py) is fetched only while it is on and dropped when it goes off; with it off
+   nothing of it runs. A camera without one: "none" (the panel's Make). */
+function syncCloud(s) {
+  if (!S.layers.cloud) { dropCloud(s); return; }
+  if (s.cloud) return;                             // loading, shown, or none
+  if (s.growing) { s.cloud = { state: "live", v: -1 }; return; }   // Realtime while it records: rtCloud fills it
+  const mine = s.cloud = { state: "loading" }, site = L;
+  (async () => {
+    const r = await fetch(pkg(s.run, "cloud.json"));
+    if (!r.ok) { if (s.cloud === mine) s.cloud = { state: "none" }; return; }
+    const head = await r.json();
+    const { CloudView, parseCloud } = await import("./cloud.js");   // loaded only once it is on
+    const parsed = parseCloud(await fetchOk(pkg(s.run, "cloud.bin")));
+    if (L !== site || s.cloud !== mine) return;    // the site, the switch or the camera went meanwhile
+    const view = new CloudView(parsed, S.cloudLook);
+    view.setLook(S.look);
+    s.group.add(view.points);
+    L.section.register(view.material);
+    s.cloud = { state: "on", view, head };
+  })().catch((e) => { if (s.cloud === mine) s.cloud = { state: "none", error: e.message }; })
+    .finally(() => syncCloudPanel());
+}
+
+function dropCloud(s) {
+  if (!s.cloud) return;
+  if (s.cloud.view) { if (L && L.section) L.section.unregister(s.cloud.view.material); s.cloud.view.dispose(); }
+  s.cloud = null;
 }
 
 function setLayers() {
@@ -2272,6 +2308,64 @@ $("#new-code").onclick = async () => {
   catch (e) { $("#phone-note").textContent = `New code failed: ${e.message}`; }
 };
 
+// ---------------------------------------------------------------------------- the point cloud's row (11)
+let cloudBusy = false;
+/** Show > Point cloud's row (only while it is on): how many cameras in the scene have a cloud; Make for
+    the site cameras without one (a Realtime recording's is made while it records). */
+function syncCloudPanel() {
+  const row = $("#cloud-row");
+  if (!row) return;
+  row.hidden = !S.layers.cloud || (!L && !REALTIME);          // (Realtime: its switch before a recording too)
+  if (row.hidden) return;
+  const all = L ? [...L.spots, ...L.parked] : [], loading = all.some((s) => s.cloud && s.cloud.state === "loading");
+  const shown = all.filter((s) => s.cloud && s.cloud.view).length;
+  const missing = all.filter((s) => s.cloud && s.cloud.state === "none" && !s.meta.realtime);
+  const rtc = REALTIME && RT.st && RT.st.cloud, making = !!(rtc && rtc.on);  // the laptop making one (step 2)
+  let text = loading ? "loading…" : !L ? "No recording yet"
+    : `${shown} of ${all.length} camera${all.length === 1 ? "" : "s"} with a cloud`;
+  if (REALTIME) text += !making ? " · Realtime: not making one"
+    : rtc.state === "loading" ? " · Realtime: the depth model is loading"
+    : rtc.state === "error" ? ` · Realtime: ${rtc.error}`
+    : !RT.st.recording ? " · Realtime: on, the next recording makes one"
+    : ` · Realtime: making · ${(rtc.points || 0).toLocaleString()} points`;
+  else if (all.some((s) => s.meta.realtime && !(s.cloud && s.cloud.view))) text += " · Realtime: made while it records";
+  if (!cloudBusy) $("#cloud-st").textContent = text;
+  $("#cloud-rt").hidden = !REALTIME;
+  $("#cloud-rt").textContent = making ? "Stop making" : "Make while recording";
+  $("#cloud-rt").setAttribute("aria-pressed", String(making));
+  $("#cloud-make").hidden = !missing.length;
+  $("#cloud-make").disabled = cloudBusy;
+  $("#cloud-make").textContent = cloudBusy ? "Making…" : `Make ${missing.length}`;
+}
+
+/** Make: the site cameras in the scene without a cloud get one (`groundtrack live-cloud`, a job each). */
+async function makeClouds() {
+  if (cloudBusy || !L) return;
+  const site = L, todo = [...L.spots, ...L.parked].filter((s) => s.cloud && s.cloud.state === "none" && !s.meta.realtime);
+  cloudBusy = true;
+  syncCloudPanel();
+  try {
+    for (const [i, s] of todo.entries()) {
+      const what = `Cloud ${i + 1}/${todo.length} · ${s.name}`;
+      $("#cloud-st").textContent = `${what} · starting`;
+      const d = await postJson("/api/live/cloud", { run: s.run });
+      let j, n = 0;
+      for (;;) {
+        j = await fetchOk(`/api/job?id=${enc(d.id)}&since=${n}`, "json");
+        n += (j.lines || []).length;
+        if (j.status !== "running") break;
+        $("#cloud-st").textContent = `${what} · ${(j.last || "running").slice(0, 80)}`;
+        await new Promise((res) => setTimeout(res, 700));
+      }
+      if (j.returncode !== 0) throw new Error(`${s.name}: ${(j.last || `exit ${j.returncode}`).slice(0, 160)}`);
+      if (L !== site) return;
+      if (s.cloud && s.cloud.state === "none") { s.cloud = null; syncCloud(s); }
+    }
+    flash(todo.length ? `Point cloud: ${todo.length} made` : "Point cloud: every camera has one");
+  } catch (e) { note(`Point cloud: ${e.message}`); flash(`Point cloud · ${e.message}`); }
+  finally { cloudBusy = false; syncCloudPanel(); }
+}
+
 // ---------------------------------------------------------------------------- the panel
 function syncPanel() {
   const pressed = (g, v) => $$(`[data-group="${g}"] button`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
@@ -2279,7 +2373,9 @@ function syncPanel() {
   pressed("ground", S.ground);
   pressed("look", S.look);
   pressed("under", S.under);
+  pressed("cloudlook", S.cloudLook);
   $$("[data-layer]").forEach((c) => { c.checked = !!S.layers[c.dataset.layer]; });
+  syncCloudPanel();
   $("#pass-stack").checked = S.stack;
   if (L && L.section) {
     const s = L.section;
@@ -2756,12 +2852,15 @@ function bindPanel() {
     else if (g === "ground") { S.ground = v; applyLook(); }
     else if (g === "look") { S.look = v; applyLook(); }
     else if (g === "under") { S.under = v; applyLook(); }
+    else if (g === "cloudlook") { S.cloudLook = v; applyLook(); }
     else if (g === "section" && L) { L.section.setPreset(v); if (!L.section.enabled) L.section.setEnabled(true); }
     else if (g === "secmode" && L) L.section.setMode(v);
     syncPanel();
     publishState();
   });
-  $$("[data-layer]").forEach((c) => c.onchange = () => { S.layers[c.dataset.layer] = c.checked; setLayers(); });
+  $$("[data-layer]").forEach((c) => c.onchange = () => { S.layers[c.dataset.layer] = c.checked; setLayers(); syncCloudPanel(); });
+  $("#cloud-make").onclick = () => makeClouds();
+  $("#cloud-rt").onclick = () => rtCloudSwitch();
   $("#zero").onclick = () => zero(null, shownSpot());
   $("#gain").oninput = (e) => { setGain(+e.target.value, shownSpot()); publishState(); };
   $("#scale").oninput = (e) => { setScale(SCALES[+e.target.value], shownSpot()); publishState(); };
@@ -3299,7 +3398,8 @@ async function rtBegin() {
   let longSide = 1920;
   try { longSide = Number(localStorage.getItem("motus-rt-long-side")) || 1920; } catch {}
   try {
-    RT.st = await postJson("/api/live/realtime", { action: "start", long_side: [1920, 1280].includes(longSide) ? longSide : 1920 });
+    RT.st = await postJson("/api/live/realtime", { action: "start", long_side: [1920, 1280].includes(longSide) ? longSide : 1920,
+                                                  cloud: rtCloudWanted() });
   } catch (e) { loading(`Realtime did not start: ${e.message}`, true); return; }
   rtWaiting();
   rtStatus();
@@ -3315,8 +3415,53 @@ async function rtStatus() {
   if (st && st.recording && st.calibrated && st.id && st.id !== RT.id && !RT.opening && !R && (!RT.id || RT.done || RT.gone))
     rtOpen(st);
   if (st) rtCheck(st);
+  if (S.layers.cloud) { if (L) rtCloud(); syncCloudPanel(); }
   if (!L) rtWaiting();
   setTimeout(rtStatus, RT_STATUS_MS);
+}
+
+/** Realtime's point cloud (11, step 2) as kept on this laptop (Realtime's page sets it too): off by default. */
+const rtCloudWanted = () => { try { return localStorage.getItem("motus-rt-cloud") === "1"; } catch { return false; } };
+
+/* Show > Point cloud on while a recording runs with the laptop making its cloud: the rough cloud so far,
+   from the laptop's memory, every RT_CLOUD_MS and only when it changed (the package's after Stop). */
+async function rtCloud() {
+  const s = rtSpot(), c = s && s.cloud;
+  if (!c || c.state !== "live" || RT.cBusy || !RT.id || !(RT.st && RT.st.cloud && RT.st.cloud.on)
+      || performance.now() - RT.cloudAt < RT_CLOUD_MS) return;
+  RT.cBusy = true;
+  RT.cloudAt = performance.now();
+  const id = RT.id;
+  try {
+    const buf = await fetchOk(`/api/live/realtime/cloud?id=${enc(id)}&v=${c.v}`);
+    const hl = new DataView(buf).getUint32(0, true);
+    const head = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, hl)));
+    if (id !== RT.id || s.cloud !== c || head.same || !head.n) return;
+    const { CloudView, parseCloud } = await import("./cloud.js");
+    const parsed = parseCloud(buf.slice(4 + hl));
+    if (s.cloud !== c || !L || !L.spots.includes(s)) return;
+    if (c.view) c.view.update(parsed);
+    else {
+      c.view = new CloudView(parsed, S.cloudLook);
+      c.view.setLook(S.look);
+      s.group.add(c.view.points);
+      L.section.register(c.view.material);
+    }
+    c.v = head.version;
+  } catch { /* none yet, or it stopped (its package's then) */ }
+  finally { RT.cBusy = false; }
+}
+
+/** The cloud row's Make while recording / Stop making: the laptop's switch (kept here for the next start). */
+async function rtCloudSwitch() {
+  const on = !(RT.st && RT.st.cloud && RT.st.cloud.on);
+  try { localStorage.setItem("motus-rt-cloud", on ? "1" : "0"); } catch {}
+  try { RT.st = await postJson("/api/live/realtime", { action: "cloud", on, light: true }); }
+  catch (e) { flash(`Point cloud · ${e.message}`); }
+  const s = rtSpot();
+  if (s && !on) dropCloud(s);                    // the laptop dropped it
+  if (s) syncCloud(s);
+  syncCloudPanel();
 }
 
 async function rtOpen(st) {
@@ -3381,6 +3526,7 @@ async function rtDone(s) {
   if (!s.growing) return;
   s.growing = false;
   RT.done = true;
+  if (s.cloud && s.cloud.state === "live") { dropCloud(s); syncCloud(s); }   // the package's cloud now (written at Stop)
   try { s.meta = { ...(await fetchOk(pkg(s.run, "scene.json"), "json")), frames: s.data.frames }; } catch {}
   rec.camera(s.name, camInfo(s));
   s.tracks.refreshReference();

@@ -39,6 +39,23 @@ $$("#rt-size button").forEach((b) => b.onclick = async () => {
 });
 showSize(longSide);
 
+// the point cloud while recording (plans/live_controller/11, step 2): off by default, kept on this laptop
+const CLOUD_KEY = "motus-rt-cloud";
+const CLOUD_HINT = $("#rt-cloud-st").textContent;
+let cloudOn = (() => { try { return localStorage.getItem(CLOUD_KEY) === "1"; } catch { return false; } })();
+function showCloud(on) {
+  $$("#rt-cloud button").forEach((b) => b.setAttribute("aria-selected", String((b.dataset.on === "1") === on)));
+}
+$$("#rt-cloud button").forEach((b) => b.onclick = async () => {
+  const on = b.dataset.on === "1";
+  if (on === cloudOn) return;
+  cloudOn = on;
+  showCloud(on);
+  try { localStorage.setItem(CLOUD_KEY, on ? "1" : "0"); } catch {}
+  try { show(await postJson("/api/live/realtime", { action: "cloud", on })); } catch (e) { $("#rt-state").title = e.message; }
+});
+showCloud(cloudOn);
+
 function show(st) {
   const rec = st.recording, cam = st.camera;
   const [text, cls] = st.mode === "error" ? [`Model error`, "bad"]
@@ -58,6 +75,10 @@ function show(st) {
   $("#rt-cam").textContent = cam ? `${cam.tilt_deg}° down · roll ${cam.roll_deg}°` : rec ? "calibrating" : "–";
   $("#rt-cam").className = "small";
   $("#rt-end").disabled = !rec;
+  const c = st.cloud;
+  $("#rt-cloud-st").textContent = !c ? CLOUD_HINT : c.state === "loading" ? "loading the depth model…"
+    : c.state === "error" ? `the depth model did not load: ${c.error}`
+    : rec ? `making · ${(c.points || 0).toLocaleString()} points from ${c.frames} depth frames` : "ready: the next recording makes one";
   const recs = st.recordings || [];
   const sig = JSON.stringify(recs.map((r) => [r.id, r.complete, r.growing, r.seconds, r.fps_tracked]));
   if (sig === recSig) return;                // rebuilt only when it changes (never under the pointer)
@@ -146,7 +167,7 @@ $("#rt-end").onclick = async () => {
 (async function start() {
   sites();
   try {
-    show(await postJson("/api/live/realtime", { action: "start", long_side: longSide }));
+    show(await postJson("/api/live/realtime", { action: "start", long_side: longSide, cloud: cloudOn }));
   } catch (e) {
     $("#rt-state").textContent = `Realtime did not start: ${e.message}`;
     $("#rt-dot").className = "rt-dot bad";

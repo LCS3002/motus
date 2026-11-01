@@ -27,6 +27,7 @@ dependencies = [
 dev = ["pytest>=7", "pyogrio>=0.7", "ruff"]
 app = ["pywebview>=5"]          # `motus app`: the desktop window (else it opens in the browser)
 live = ["websockets>=14", "cryptography>=42", "qrcode>=7.4"]   # Live mode: the phone controller's hub
+cloud = ["transformers>=4.45"]  # Live's point cloud (off by default): the depth model
 
 [project.scripts]
 motus = "groundtrack.cli:main"

@@ -294,3 +294,8 @@ select option { background: var(--bg); color: var(--fg); }
 
 /* the Sheet button's hidden page (09): renders the pass's view for its sheet, never seen */
 .sheet-frame { position: fixed; right: 0; bottom: 0; width: 4px; height: 4px; border: 0; opacity: 0; pointer-events: none; }
+
+/* Show > Point cloud's row (11): only while it is on */
+.cloud-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 4px 0 2px 22px; }
+.cloud-row[hidden] { display: none; }
+.cloud-row #cloud-st { flex: 1 1 100%; color: var(--muted); }

@@ -332,6 +332,7 @@ class Recording:
         self.last_blur: np.ndarray | None = None
         self.held: deque = deque()           # (k, boxes): boxes blurred until HOLD_S later
         self.poses = open(self.live / "recorder_pose.rec", "wb")  # noqa: SIM115
+        self.cloud = None                    # live_cloud.CloudBuilder while the point cloud is on (11)
         self.raw_thread = threading.Thread(target=self._raw_loop, name=f"rt-raw-{self.id}",
                                            daemon=True)
         self.raw_thread.start()
@@ -387,6 +388,9 @@ class Recording:
             self.raw_q.put_nowait((k, jpeg))
         except queue.Full:
             self.n_raw_dropped += 1
+        cb = self.cloud
+        if cb is not None and q is not None:
+            cb.pose(k, q)
         self.wake.set()
         return True
 
@@ -682,6 +686,18 @@ class Recording:
                 "stats": self.stats_summary(), "complete": complete, "notes": notes}
         (self.root / "recording.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
+    def finish_cloud(self, notes: list[str]) -> None:
+        """The point cloud (11, when on): its files into the package before it is whole."""
+        cb, self.cloud = self.cloud, None
+        if cb is None:
+            return
+        try:
+            m = cb.finish(self.live)
+            self.log(f"point cloud: {m['n']} points from {m['frames']} depth frames (rough)" if m
+                     else "point cloud: no depth frame was made")
+        except Exception as e:  # noqa: BLE001  (the package is still saved)
+            notes.append(f"point cloud: {type(e).__name__}: {e}")
+
     def finish(self) -> dict:
         """After the last frame: the writers closed, the package made whole (or left out when
         nothing was tracked). Returns the recording's meta."""
@@ -715,6 +731,7 @@ class Recording:
                 (self.live / "blurred.mkv").unlink(missing_ok=True)
                 (self.live / "tracks_index.json").write_text(json.dumps(self.index, indent=1),
                                                              encoding="utf-8")
+                self.finish_cloud(notes)
                 self.write_scene(growing=False)
                 complete = True
         elif err:
@@ -723,6 +740,8 @@ class Recording:
             notes.append("nothing was tracked: no package (the raw video is kept)")
         if not complete:
             (self.live / "scene.json").unlink(missing_ok=True)
+            if self.cloud is not None:                # (no package: no cloud either)
+                self.cloud.closed, self.cloud = True, None
         self.write_meta(complete, notes)
         secs = (self.k_raw + 1) / FPS if self.k_raw >= 0 else 0.0
         self.log(f"recording {self.id} ended: {secs:.1f} s, {self.n_in} frames received "
@@ -756,6 +775,9 @@ class LiveTracker:
         self.device = device
         self.rec: Recording | None = None
         self.saving: list[str] = []
+        self.cloud_on = False                # the point cloud (plans/live_controller/11): off by default
+        self.cloud = None                    # live_cloud.RealtimeCloud while it is on
+        self.cloud_depth = None              # (tests: a stand-in depth model)
         self.saved: dict | None = None       # the last recording's meta
         self._lock = threading.Lock()
         self._jobs: queue.Queue = queue.Queue()      # ("load", done) / ("track", Recording) / None
@@ -770,6 +792,40 @@ class LiveTracker:
 
     def log(self, msg: str) -> None:
         self._log(f"{time.strftime('%H:%M:%S')} realtime: {msg}")
+
+    def set_cloud(self, on) -> None:
+        """The point cloud while recording (plans/live_controller/11, step 2), on or off. Off (the
+        default): nothing of it runs (no thread, no depth model, no files). On: the depth model loads
+        in its own thread and the recording running (from now) and the next ones make a rough cloud.
+        Turned off: the running recording's is dropped and the model released."""
+        if not isinstance(on, bool):
+            raise ValueError("cloud: true or false")
+        with self._lock:
+            if on == self.cloud_on:
+                return
+            self.cloud_on = on
+            rec = self.rec
+            if on:
+                from .live_cloud import RealtimeCloud
+
+                self.cloud = RealtimeCloud(log=self.log, depth=self.cloud_depth)
+                if rec is not None and not rec.closing:
+                    rec.cloud = self.cloud.builder(rec)
+                return
+            c, self.cloud = self.cloud, None
+            if rec is not None and rec.cloud is not None:
+                rec.cloud.closed, rec.cloud = True, None
+        if c is not None:
+            threading.Thread(target=c.close, name="rt-cloud-close", daemon=True).start()
+
+    def cloud_since(self, rid: str, v0: int = -1) -> tuple[dict, bytes]:
+        """Recording rid's rough cloud so far (live_cloud.CloudBuilder.snapshot), while it records with
+        the cloud on (FileNotFoundError otherwise: after Stop it is in the package)."""
+        rec = self.rec
+        cb = rec.cloud if rec is not None and rec.id == rid else None
+        if cb is None:
+            raise FileNotFoundError(f"recording {rid}: no cloud being made")
+        return cb.snapshot(v0)
 
     def _submit(self, job) -> None:
         if self._worker is None or not self._worker.is_alive():
@@ -831,6 +887,9 @@ class LiveTracker:
             self._jobs.put(None)
             th.join(300)
             self._worker = None
+        c, self.cloud, self.cloud_on = self.cloud, None, False
+        if c is not None:                    # (after the last recording's cloud was written)
+            c.close()
         self.model = None
         self.mode = "off"
         try:
@@ -871,6 +930,8 @@ class LiveTracker:
             while (base / rid).exists():
                 rid, n = f"{time.strftime('%Y%m%d-%H%M%S')}-{n}", n + 1
             self.rec = Recording(base / rid, (w, h), self.cfg, self._log, hm, to)
+            if self.cloud is not None:
+                self.rec.cloud = self.cloud.builder(self.rec)
             self.saved = None
             self._submit(("track", self.rec))        # after the loading (frames wait: latest wins)
             return {"id": rid, "resumed": False}
@@ -910,6 +971,10 @@ class LiveTracker:
               "saved": self.saved and {**{k: self.saved.get(k) for k in
                                           ("id", "complete", "seconds", "tracks", "notes")},
                                        "run": str(recordings_dir(self.project) / self.saved["id"])}}
+        if self.cloud_on:                    # (off: not in the status at all)
+            c, cb = self.cloud, rec.cloud if rec is not None and not rec.closing else None
+            st["cloud"] = {"on": True, "state": c.state if c else "off", "error": c.error if c else None,
+                           "points": len(cb.cloud) if cb else 0, "frames": cb.frames if cb else 0}
         if rec is None or rec.closing:
             return {**st, "recording": False}
         now = time.monotonic()
@@ -1013,6 +1078,9 @@ class LiveTracker:
         rows = ft.step(k, k / FPS, img, xyxy[sure], conf[sure], cls[sure])
         rec.place(rows)
         rec.write_blurred(k, img, xyxy[np.isin(cls, list(privacy_ids))])
+        cb = rec.cloud
+        if cb is not None:                   # the point cloud (11, on): now and then, to its own thread
+            cb.offer(k, img, xyxy)
         rec.n_tracked += 1
         rec.people = sum(1 for r_ in rows if r_[1] == "person")
         rec.person_rows.extend(r_ for r_ in rows if r_[1] == "person")

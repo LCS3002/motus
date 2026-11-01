@@ -180,6 +180,16 @@
     <label class="check" title="A calm grid of ground points that shows how the ground is dragged as the camera turns"><input type="checkbox" data-layer="drag"> Drag grid</label>
     <label class="check" title="V: re-framed (the recording stays put, the violet frame moves over it) / glued / off"><input type="checkbox" data-layer="video" checked> Video plane</label>
     <label class="check" title="The cameras drawn in the scene: the start camera as a white ghost, each virtual camera in its tint"><input type="checkbox" data-layer="cameras" checked> Cameras</label>
+    <label class="check" title="The surroundings as points: depth from each camera's video, fitted to its calibrated ground; people left out. Off by default: nothing of it runs while off"><input type="checkbox" data-layer="cloud"> Point cloud</label>
+    <div class="cloud-row" id="cloud-row" hidden>
+      <span class="label" id="cloud-st"></span>
+      <div class="opts" data-group="cloudlook">
+        <button data-v="grey" title="Light points: the drafting look">Grey</button>
+        <button data-v="colour" title="The (blurred) video's colours">Colour</button>
+      </div>
+      <button id="cloud-make" hidden title="Make the cloud of each site camera in the scene without one (a minute or so each, on the GPU)">Make</button>
+      <button id="cloud-rt" hidden title="Realtime: the laptop makes a rough cloud while it records (a depth frame now and then, in its own thread; the depth model on the GPU). Kept for the next start">Make while recording</button>
+    </div>
   </section>
   <section>
     <h3 class="label">Look</h3>

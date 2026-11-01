@@ -287,7 +287,7 @@ class DesktopApp(App):
     _hub_lock = threading.Lock()
     hub_options = {"port": 8766, "view_port": 8767, "host": "0.0.0.0"}
     live_files = {"scene.json", "terrain.f32", "aerial.jpg", "tracks.bin", "tracks_index.json",
-                  "video.mp4"}               # what the view may fetch (no check.png, no log)
+                  "video.mp4", "cloud.json", "cloud.bin"}   # what the view may fetch (no check.png, no log)
 
     def live_dir(self, run: str) -> Path:
         """The run's scene package (<run>/live/), through the usual checks (inside the
@@ -457,6 +457,20 @@ class DesktopApp(App):
 
         return {**job.summary(), "dir": str(export_dir(run, pid))}
 
+    def live_cloud(self, body: dict) -> dict:
+        """A site camera's point cloud (plans/live_controller/11; Live asks only with its cloud on):
+        `groundtrack live-cloud <run>` as a job, {run, remove}. A Realtime recording's is made while it
+        records, not here."""
+        live = self.live_dir(str(body.get("run", "")))
+        meta = json.loads((live / "scene.json").read_text(encoding="utf-8"))
+        if meta.get("realtime"):
+            raise ValueError("a Realtime recording: its cloud is made while it records")
+        args = ["live-cloud", str(live.parent)] + (["--remove"] if body.get("remove") else [])
+        what = "remove" if body.get("remove") else "make"
+        job = self.job_class("live-cloud", args, self.root, f"cloud · {meta.get('clip')} · {what}")
+        self.jobs[job.id] = job
+        return job.summary()
+
     def live_layers_export(self, body: bytes) -> dict:
         """The collage (or one camera's layer) as a run: GeoJSON and the files always, Rhino and Houdini
         unless the header says false (Live's Output: All, or one of them): [u32 header
@@ -523,7 +537,9 @@ class DesktopApp(App):
     def live_realtime(self, body: dict) -> dict:
         """The realtime mode: start (the hub too; the model loads in the background), stop (the
         recording saved, the model released: picking another site), end (the recording only),
-        size (long_side 1920 or 1280: the next recording's frames; start takes it too), status.
+        size (long_side 1920 or 1280: the next recording's frames; start takes it too), cloud (on:
+        the point cloud while recording, plans/live_controller/11; off by default; start takes it
+        too), status.
         Always with the recordings (runs/live/, newest first), unless "light" (the Live view's
         poll: the status only)."""
         from .live_track import LiveTracker, list_recordings
@@ -540,6 +556,8 @@ class DesktopApp(App):
                     self._realtime = LiveTracker(self.root)
                 if body.get("long_side") is not None:
                     self._realtime.set_long_side(body["long_side"])
+                if body.get("cloud") is not None:
+                    self._realtime.set_cloud(body["cloud"] is True)
                 self._realtime.load()
                 self._hub.set_recorder(self._realtime)
             elif action == "stop" and self._realtime is not None:
@@ -552,8 +570,10 @@ class DesktopApp(App):
                 self._realtime.end()
             elif action == "size" and self._realtime is not None:
                 self._realtime.set_long_side(body.get("long_side"))
-            elif action not in ("start", "stop", "end", "size", "status"):
-                raise ValueError("action: start, stop, end, size or status")
+            elif action == "cloud" and self._realtime is not None:
+                self._realtime.set_cloud(body.get("on") is True)
+            elif action not in ("start", "stop", "end", "size", "cloud", "status"):
+                raise ValueError("action: start, stop, end, size, cloud or status")
             st = self._realtime.status() if self._realtime is not None else {"mode": "off"}
         if body.get("light"):
             return st
@@ -569,6 +589,18 @@ class DesktopApp(App):
 
         rt = self._realtime
         head, data = rt.tracks_since(rid, n0) if rt is not None else package_tracks(self.root, rid, n0)
+        h = json.dumps(head).encode()
+        return struct.pack("<I", len(h)) + h + data
+
+    def live_realtime_cloud(self, rid: str, v0: int) -> bytes:
+        """A recording's rough cloud so far while it records with the cloud on (11, step 2): [u32 header
+        length][the header JSON (live_cloud.CloudBuilder.snapshot)][CLOUD_DTYPE records]."""
+        import struct
+
+        rt = self._realtime
+        if rt is None:
+            raise FileNotFoundError("realtime is off")
+        head, data = rt.cloud_since(rid, v0)
         h = json.dumps(head).encode()
         return struct.pack("<I", len(h)) + h + data
 
@@ -598,6 +630,7 @@ def make_desktop_handler(app: DesktopApp, port: int):
         "/api/live/hub": app.live_hub, "/api/live/pass": app.live_pass_post,
         "/api/live/realtime": app.live_realtime,
         "/api/live/render": app.live_render, "/api/live/export": app.live_export,
+        "/api/live/cloud": app.live_cloud,
         "/api/live/pass/save": None, "/api/live/render/frame": None,       # binary bodies
         "/api/live/sheet": None,          # the performance sheet (09): the view's PNG in, the sheet out
         "/api/live/export/layers": None,  # the collage / a camera's layer: the layers' drawings in, a job
@@ -650,6 +683,9 @@ def make_desktop_handler(app: DesktopApp, port: int):
                     self._json(app.live_realtime({"action": "status", "light": q.get("light") == "1"}))
                 elif u.path == "/api/live/realtime/tracks":
                     self._send(200, app.live_realtime_tracks(q["id"], int(q.get("from", 0) or 0)),
+                               "application/octet-stream")
+                elif u.path == "/api/live/realtime/cloud":
+                    self._send(200, app.live_realtime_cloud(q["id"], int(q.get("v") or -1)),
                                "application/octet-stream")
                 elif u.path == "/api/live/realtime/preview":
                     data = app.live_realtime_preview(q["id"])

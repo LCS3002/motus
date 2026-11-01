@@ -333,6 +333,17 @@ def cmd_live_sheet(args):
     make_sheet(args.run, args.id, layout=args.layout, themes=themes, view=not args.no_view)
 
 
+def cmd_live_cloud(args):
+    """<run>/live/cloud.bin / .json / .ply: a site camera's point cloud (live_cloud.py; off unless asked)."""
+    from .live_cloud import make_site_cloud, remove_cloud
+
+    if args.remove:
+        remove_cloud(Path(args.run) / "live")
+        print(f"cloud removed: {Path(args.run) / 'live'}")
+        return
+    make_site_cloud(Path(args.run), frames=args.frames, voxel=args.voxel)
+
+
 def cmd_package(args):
     from .geo import load_geotiff
     from .package import build_package
@@ -659,6 +670,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-view", action="store_true",
                    help="no browser: the view rendered before (sheet_view.png), if any")
     s.set_defaults(func=cmd_live_sheet)
+
+    s = sub.add_parser("live-cloud", help="a point cloud of a site camera's surroundings (depth per frame "
+                                          "fitted to its calibrated ground; people left out): <run>/live/cloud.*; "
+                                          "needs the extra [cloud]")
+    s.add_argument("run", help="the run whose live package gets the cloud (runs/<site>/<run>)")
+    s.add_argument("--frames", type=int, default=24, help="frames spread over the clip (default 24)")
+    s.add_argument("--voxel", type=float, default=0.10, help="the merged cloud's voxel, m (default 0.10)")
+    s.add_argument("--remove", action="store_true", help="delete the run's cloud files instead")
+    s.set_defaults(func=cmd_live_cloud)
 
     s = common(sub.add_parser("package", help="frameless images + labels/metrics for a run"))
     s.add_argument("--run", default="latest", help="run folder, run name, or 'latest'")
