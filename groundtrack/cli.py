@@ -315,14 +315,16 @@ def cmd_live_pass_export(args):
     """<run>/live/passes/<id>/pass_<id>/: a saved Live pass as a run (live_pass_export.py)."""
     from .live_pass_export import export_pass
 
-    export_pass(args.run, args.id, rhino=args.rhino, houdini=args.houdini, build=not args.no_build)
+    export_pass(args.run, args.id, rhino=args.rhino, houdini=args.houdini, build=not args.no_build,
+                cloud=args.cloud)
 
 
 def cmd_live_layers_export(args):
     """<run>/live/exports/<stamp>-<collage | camera id>/: the Live collage's layers as a run."""
     from .live_pass_export import export_layers
 
-    export_layers(args.dir, rhino=args.rhino, houdini=args.houdini, build=not args.no_build)
+    export_layers(args.dir, rhino=args.rhino, houdini=args.houdini, build=not args.no_build,
+                  cloud=args.cloud)
 
 
 def cmd_live_sheet(args):
@@ -646,6 +648,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--rhino", action="store_true", help="also the Rhino model (.3dm + Grasshopper)")
     s.add_argument("--houdini", action="store_true", help="also the Houdini POP kit")
     s.add_argument("--no-build", action="store_true", help="the POP kit's files only, no .hip")
+    s.add_argument("--cloud", action="store_true", help="also the cameras' point clouds (those that have one: "
+                                                         "live-cloud, or Realtime's)")
     s.set_defaults(func=cmd_live_pass_export)
 
     s = sub.add_parser("live-layers-export", help="the Live collage's layers (all, or one camera's) as a run: "
@@ -656,6 +660,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--rhino", action="store_true", help="also the Rhino model (.3dm + Grasshopper)")
     s.add_argument("--houdini", action="store_true", help="also the Houdini POP kit")
     s.add_argument("--no-build", action="store_true", help="the POP kit's files only, no .hip")
+    s.add_argument("--cloud", action="store_true", help="also the cameras' point clouds (those that have one: "
+                                                         "live-cloud, or Realtime's)")
     s.set_defaults(func=cmd_live_layers_export)
 
     s = sub.add_parser("live-sheet", help="a saved Live pass's performance sheet: the finished drawing "

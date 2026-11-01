@@ -160,7 +160,8 @@ only stages 3–6 with `motus process -c <site>.yaml --run latest`.
 | `live-export` | the scene package of a processed run for the Live view |
 | `live-hub` | the phone controller's hub on its own (Live in the app starts it) |
 | `live-sheet` | a saved pass's performance sheet |
-| `live-pass-export` / `live-layers-export` | a saved pass / the Live collage's layers, as a run |
+| `live-pass-export` / `live-layers-export` | a saved pass / the Live collage's layers, as a run (`--cloud`: with the point clouds) |
+| `live-cloud` | a site camera's point cloud (optional, the `cloud` extra) |
 
 Every command takes `--help`. Every option of a site config, with comments, is in
 `groundtrack/config.py` (`DEFAULTS`).
@@ -210,6 +211,14 @@ motus app                               # motus live from the start menu; phones
   renders, exports and makes a sheet like any other. A pass that ends earlier (another site) is
   saved with what came so far. Realtime setup (under Realtime while it is on) sets 1080p or 720p;
   the saved recordings open from Live's site menu.
+* **Point cloud (optional, off by default):** a cloud of the surroundings from monocular depth
+  (Depth Anything V2, `pip install -e ".[cloud]"`), fitted to the calibrated ground, people left
+  out. A site: `motus live-cloud <run>` (or Make in Live's cloud row). Realtime: Point cloud On on
+  its setup page builds a rough cloud while it records, saved at Stop. Live shows it under Show >
+  Point cloud. While that is on, the pass and collage exports also write each camera's cloud:
+  `cloud/<camera>.ply` (as the Rhino model, Z up), `houdini/cloud_<camera>.ply` (Y up, as the
+  curves) and a `point cloud` layer in the `.3dm` (`--cloud` on the command line). Off, nothing of
+  it runs and the exports are as before.
 * **Privacy:** the phones that turn the camera send only poses and button presses, over the local
   network (HTTPS + WSS, a pairing code, a self-signed certificate). In Realtime the recording phone
   also sends its camera frames over that link, to the laptop only. The laptop blurs them before

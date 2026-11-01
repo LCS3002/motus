@@ -1967,7 +1967,8 @@ async function collageExport(name = null, fmt = "all", force = false) {
     note(`${what} · ${layers.length} layer${layers.length === 1 ? "" : "s"} · starting`);
     let d;
     const rhino = fmt === "all" || fmt === "rhino", houdini = fmt === "all" || fmt === "houdini";
-    try { d = await postFiles("/api/live/export/layers", { camera: name || undefined, site: L.site, layers, rhino, houdini, force }, files); }
+    try { d = await postFiles("/api/live/export/layers", { camera: name || undefined, site: L.site, layers, rhino, houdini, force,
+                                                           cloud: !!S.layers.cloud }, files); }
     catch (e) {
       if (!e.confirm) throw e;
       note("");
@@ -2819,7 +2820,8 @@ async function passExport(q, what, force = false) {
   syncPasses();
   try {
     let j;
-    const body = { run: q.run, id: q.id, rhino: what === "rhino" || what === "all", houdini: what === "houdini" || what === "all", force };
+    const body = { run: q.run, id: q.id, rhino: what === "rhino" || what === "all", houdini: what === "houdini" || what === "all", force,
+                   cloud: !!S.layers.cloud };                // Show > Point cloud on: the cameras' clouds too (11)
     const r = await fetch("/api/live/export", { method: "POST", headers: { "Content-Type": "application/json", "X-Groundtrack": "1" }, body: JSON.stringify(body) });
     const d = await r.json().catch(() => ({}));
     if (r.status === 409 && d.confirm) {

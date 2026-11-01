@@ -433,7 +433,8 @@ class DesktopApp(App):
         raise ValueError("action: begin, finish or cancel")
 
     def live_export(self, body: dict) -> dict:
-        """`groundtrack live-pass-export` as a job: {run, id, rhino, houdini, no_build, force}."""
+        """`groundtrack live-pass-export` as a job: {run, id, rhino, houdini, no_build, force, cloud (the
+        cameras' point clouds: Live sends it while its Point cloud is on)}."""
         from .live_passes import read_pass
 
         run, pid = self._pass_run(body.get("run")), str(body.get("id", ""))
@@ -450,6 +451,7 @@ class DesktopApp(App):
         args += ["--rhino"] if body.get("rhino") else []
         args += ["--houdini"] if body.get("houdini") else []
         args += ["--no-build"] if body.get("no_build") else []
+        args += ["--cloud"] if body.get("cloud") is True else []
         what = "+".join(k for k in ("rhino", "houdini") if body.get(k)) or "files"
         job = self.job_class("live-pass-export", args, self.root, f"pass export · {pid} · {what}")
         self.jobs[job.id] = job
@@ -476,7 +478,7 @@ class DesktopApp(App):
         unless the header says false (Live's Output: All, or one of them): [u32 header
         length][JSON header][files] (live_passes.parse_files). Header {camera (one camera's layer; none:
         the collage), site, layers: [{camera, camera_id, package, run, id, key, kind, stacked, up_to,
-        file}], rhino, houdini, force}; one drawing per layer. Prepared in <run of the first
+        file}], rhino, houdini, force, cloud}; one drawing per layer. Prepared in <run of the first
         layer>/live/exports/, then `groundtrack live-layers-export` as a job."""
         from .live_pass_export import MAX_LAYERS, prepare_layers
         from .live_passes import parse_files
@@ -507,6 +509,7 @@ class DesktopApp(App):
                                    "hython (nothing open is rebuilt). Export?")
         out = prepare_layers(layers, files, camera=cam, site=str(head.get("site") or ""), root=self.root)
         args = ["live-layers-export", str(out)] + (["--rhino"] if rhino else []) + (["--houdini"] if houdini else [])
+        args += ["--cloud"] if head.get("cloud") is True else []
         what = "+".join(k for k, on in (("rhino", rhino), ("houdini", houdini)) if on) or "files"
         job = self.job_class("live-layers-export", args, self.root,
                              f"export · {cam or 'collage'} · {len(layers)} layers · {what}")

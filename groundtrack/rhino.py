@@ -75,11 +75,13 @@ def _field_z(field: pd.DataFrame, heights: dict) -> np.ndarray:
 # --------------------------------------------------------------------------- .3dm
 def write_3dm(path: Path, points: pd.DataFrame, fields: dict, origin, z0: float | None,
               cfg: Config, cell: float, cameras=(), outlines=(), title: str = "",
-              by_camera: dict | None = None) -> Path:
+              by_camera: dict | None = None, clouds=()) -> Path:
     """points: points.csv rows (x, y[, z], speed, group, track_id, ...); fields: group ->
     vector-field DataFrame (smooth_field columns); cameras: [(name, E, N, height above Z0)];
     outlines: [(name, [(E, N), ...])] closed view outlines. by_camera: {points' camera: layer
-    name}, the tracks layered per camera, its groups under it (a Live layers export only)."""
+    name}, the tracks layered per camera, its groups under it (a Live layers export only).
+    clouds: [{camera, label, P (n x 3, metres from origin, Z up from z0), rgb, ...}]
+    (live_cloud.export_clouds): a "point cloud" layer, one sublayer per camera."""
     import rhino3dm as r3
 
     ox, oy = float(origin[0]), float(origin[1])
@@ -197,6 +199,16 @@ def write_3dm(path: Path, points: pd.DataFrame, fields: dict, origin, z0: float 
                       confidence=round(float(rw["confidence"]), 3))
             a.ObjectDecoration = r3.ObjectDecoration.EndArrowhead
             m.Objects.AddCurve(line, a)
+
+    if len(clouds):                      # the cameras' point clouds (plans/live_controller/11; asked for)
+        lk = layer("point cloud", (120, 120, 120), root.Id)
+        for c in clouds:
+            pc = r3.PointCloud()
+            for q, col in zip(np.asarray(c["P"], float).tolist(), np.asarray(c["rgb"], int).tolist()):
+                pc.Add(r3.Point3d(*q), (*col, 255))
+            m.Objects.AddPointCloud(pc, attrs(layer(str(c["label"]), (120, 120, 120), lk.Id), None,
+                                              f"cloud {c['label']}", camera=c["camera"], points=len(c["P"]),
+                                              source=c.get("source") or "", rough=bool(c.get("rough"))))
 
     if len(cameras) or len(outlines):
         lc = layer("cameras", (20, 20, 20), root.Id)
@@ -432,7 +444,7 @@ def write_grasshopper_script(path: Path, points_csv: Path, field_files: dict, or
 
 # --------------------------------------------------------------------------- a run
 def write_rhino(run_dir: Path, cfg: Config, origin, z0: float | None, log=print,
-                title: str = "", cameras=(), outlines=(), by_camera: dict | None = None) -> dict:
+                title: str = "", cameras=(), outlines=(), by_camera: dict | None = None, clouds=()) -> dict:
     """grasshopper_import.py (+ <site>.3dm when rhino3dm is installed) into run/rhino/."""
     from .layout import open_run
 
@@ -456,6 +468,6 @@ def write_rhino(run_dir: Path, cfg: Config, origin, z0: float | None, log=print,
     if len(fields) > 1:
         fields.pop("all", None)          # one field per group is enough in the .3dm
     out["3dm"] = write_3dm(run.rhino / f"{cfg.site}.3dm", points, fields, origin, z0, cfg,
-                           cell, cameras, outlines, title or cfg.site, by_camera=by_camera)
+                           cell, cameras, outlines, title or cfg.site, by_camera=by_camera, clouds=clouds)
     log(f"rhino: {out['3dm'].name} + grasshopper_import.py -> {run.rhino}")
     return out

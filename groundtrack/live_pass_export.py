@@ -17,6 +17,8 @@ they take any run.
       rhino/                 <site>.3dm + grasshopper_import.py (--rhino)
       houdini_pop/           the POP kit (--houdini; built with hython unless --no-build)
       _working/              homography_used.json (the start camera's), config_used.yaml
+      cloud/, houdini/cloud_*.ply   the cameras' point clouds, only when asked (cloud: Live's Point cloud
+                             on; live_cloud.export_clouds), and a "point cloud" layer in the .3dm
       meta.json              the pass, its cameras, the counts
 
 The collage of the Live view (08 sandbox: each camera a layer, built from one or more plays), all of
@@ -311,14 +313,23 @@ def _write_out(pr, cfg, h, points: pd.DataFrame, cams: list[dict], path: pd.Data
     return res
 
 
+def _clouds(res: dict, pr, h, cams: list[dict], log, labels: dict | None = None) -> list[dict]:
+    """The cameras' point clouds into the export (asked for only): files, res["cloud"]."""
+    from .live_cloud import export_clouds
+
+    clouds = export_clouds(pr.root, cams, h.origin, h.ground_z_m, labels=labels, log=log)
+    res["cloud"] = [{k: c[k] for k in ("camera", "points", "source", "ply", "houdini")} for c in clouds]
+    return clouds
+
+
 def _write_models(res: dict, pr, cfg, h, cams: list[dict], title: str, kit: str, rhino: bool, houdini: bool,
-                  build: bool, log, by_camera: dict | None = None) -> dict:
+                  build: bool, log, by_camera: dict | None = None, clouds=None) -> dict:
     """The Rhino model (rhino) and the POP kit (houdini; its scene built with hython unless not build)."""
     if rhino:
         from .rhino import write_rhino
 
         r = write_rhino(pr.root, cfg, h.origin, h.ground_z_m, log, title=title, cameras=_cameras3d(cams),
-                        by_camera=by_camera)
+                        by_camera=by_camera, clouds=clouds or ())
         res["rhino"] = {k: str(v) for k, v in r.items()}
     if houdini:
         if "field" not in res:
@@ -334,9 +345,10 @@ def _write_models(res: dict, pr, cfg, h, cams: list[dict], title: str, kit: str,
 
 
 def export_pass(run: str | Path, pass_id: str, rhino: bool = False, houdini: bool = False,
-                build: bool = True, log=print) -> dict:
+                build: bool = True, log=print, cloud: bool = False) -> dict:
     """Write the pass's folder (module docstring): points, metrics, GeoJSON, camera path, Houdini
-    curves and field always; the Rhino model with rhino, the POP kit with houdini."""
+    curves and field always; the Rhino model with rhino, the POP kit with houdini; the cameras' point
+    clouds with cloud."""
     run = Path(run).resolve()
     m = read_pass(run, pass_id)
     out = export_dir(run, pass_id)
@@ -345,15 +357,17 @@ def export_pass(run: str | Path, pass_id: str, rhino: bool = False, houdini: boo
     log(f"pass {pass_id}: {len(points)} drawn points, {points['track_id'].nunique() if len(points) else 0} "
         f"pieces, {len(cams)} cameras")
     res = _write_out(pr, cfg, h, points, cams, camera_path(run, pass_id, cams))
+    clouds = _clouds(res, pr, h, cams, log) if cloud else None
     meta = {"format": "motus-live-pass-export", "version": 1, "pass": pass_id, "run": str(run),
             "site": m.get("site"), "started": m.get("started"), "ended": m.get("ended"),
             "complete": bool(m.get("complete")), "config": str(cfg_path),
             "cameras": [{"name": c["name"], "run": str(c["run"]), "origin": list(c["origin"]),
                          "points": c["points"], "drawn": c["drawn"]} for c in cams],
-            "points": len(points), "tracks": res["tracks"], "crs": _crs(h)}
+            "points": len(points), "tracks": res["tracks"], "crs": _crs(h),
+            **({"cloud": res["cloud"]} if cloud else {})}
     (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     _write_models(res, pr, cfg, h, cams, f"{cfg.site} · pass {pass_id}",
-                  f"{cfg.site}_pass_{pass_id.replace('-', '_')}", rhino, houdini, build, log)
+                  f"{cfg.site}_pass_{pass_id.replace('-', '_')}", rhino, houdini, build, log, clouds=clouds)
     log(f"pass export -> {out}")
     return res
 
@@ -484,10 +498,11 @@ def layers_path(meta: dict, cams: list[dict], root: Path) -> pd.DataFrame:
 
 
 def export_layers(out_dir: str | Path, rhino: bool = False, houdini: bool = False, build: bool = True,
-                  log=print) -> dict:
+                  log=print, cloud: bool = False) -> dict:
     """The layers prepared in out_dir (prepare_layers) as a run, in that folder: points, metrics,
     GeoJSON, camera path, Houdini curves and field always; the Rhino model with rhino, the POP kit
-    with houdini. The site's config and the start camera are the first layer's run's."""
+    with houdini; the cameras' point clouds with cloud. The site's config and the start camera are
+    the first layer's run's."""
     out = Path(out_dir).resolve()
     meta = json.loads((out / LAYERS_FILE).read_text(encoding="utf-8"))
     if meta.get("format") != LAYERS_FORMAT:
@@ -500,9 +515,11 @@ def export_layers(out_dir: str | Path, rhino: bool = False, houdini: bool = Fals
     log(f"{what}: {len(cams)} layers, {len(points)} drawn points, "
         f"{points['track_id'].nunique() if len(points) else 0} pieces")
     res = _write_out(pr, cfg, h, points, cams, layers_path(meta, cams, root))
+    by_camera = {ly["camera"]: camera_label(ly["camera"], ly.get("camera_id")) for ly in meta["layers"]}
+    clouds = _clouds(res, pr, h, cams, log, labels=by_camera) if cloud else None
     _write_models(res, pr, cfg, h, cams, f"{cfg.site} · {what} · {out.name}",
                   f"{cfg.site}_{safe_id(out.name.replace('-', '_'))}", rhino, houdini, build, log,
-                  by_camera={ly["camera"]: camera_label(ly["camera"], ly.get("camera_id")) for ly in meta["layers"]})
+                  by_camera=by_camera, clouds=clouds)
     for ly, c in zip(meta["layers"], cams, strict=True):
         ly["drawn"] = c["drawn"]
     meta.update({"config": str(cfg_path), "crs": _crs(h), "points": len(points), "tracks": res["tracks"],

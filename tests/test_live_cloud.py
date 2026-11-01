@@ -12,8 +12,10 @@ import cv2
 import numpy as np
 import pytest
 
+import test_live_pass_export as PX
 import test_live_view as V
 from groundtrack import live_cloud as LC
+from test_live_pass_export import saved  # noqa: F401  (the fixture)
 
 ROOT = Path(__file__).resolve().parents[1]
 PKG = ROOT / "groundtrack"
@@ -167,20 +169,24 @@ def test_a_site_cloud_refuses_realtime_and_unblurred_packages(tmp_path):
 
 # --------------------------------------------------------------------------- the switch: off by default
 def test_nothing_loads_the_cloud_unless_it_is_asked_for():
-    """Off: no module imports live_cloud at load (only inside the CLI's command and Realtime's
-    switch), and live_cloud itself loads neither torch nor transformers until a cloud is made."""
+    """Off: no module imports live_cloud at load (only inside the CLI's command, Realtime's switch and
+    the exports' clouds, asked for), and live_cloud itself loads neither torch nor transformers until a
+    cloud is made."""
     imports = ("from .live_cloud", "import live_cloud", "groundtrack.live_cloud", "from . import live_cloud")
     users = sorted(p.name for p in PKG.glob("*.py") if p.name != "live_cloud.py"
                    and any(i in p.read_text(encoding="utf-8") for i in imports))
-    assert users == ["cli.py", "live_track.py"]
+    assert users == ["cli.py", "live_pass_export.py", "live_track.py"]
     cli, lt = _text(PKG / "cli.py"), _text(PKG / "live_track.py")
     assert cli.count("from .live_cloud import") == 1 == lt.count("from .live_cloud import")
     assert "from .live_cloud import" in cli.split("def cmd_live_cloud(args):")[1].split("\ndef ")[0]
     assert "from .live_cloud import" in lt.split("    def set_cloud(self, on) -> None:")[1].split("\n    def ")[0]
+    px = _text(PKG / "live_pass_export.py")
+    assert px.count("from .live_cloud import") == 1 and "from .live_cloud import" in px.split("def _clouds(")[1].split("\ndef ")[0]
     py = lambda code: subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=180)
     r = py("import sys, groundtrack.live_cloud; print('torch' in sys.modules, 'transformers' in sys.modules)")
     assert r.returncode == 0 and r.stdout.split() == ["False", "False"], r.stderr
-    r = py("import sys, groundtrack.cli, groundtrack.desktop, groundtrack.live_hub, groundtrack.live_track; "
+    r = py("import sys, groundtrack.cli, groundtrack.desktop, groundtrack.live_hub, groundtrack.live_track, "
+           "groundtrack.live_pass_export, groundtrack.rhino; "
            "print('groundtrack.live_cloud' in sys.modules, 'transformers' in sys.modules)")
     assert r.returncode == 0 and r.stdout.split() == ["False", "False"], r.stderr
 
@@ -472,3 +478,126 @@ def test_a_recording_with_the_cloud_on_gets_its_cloud_and_off_gets_nothing(tmp_p
     assert rt.cloud is None and "cloud" not in rt.status()
     assert T.until(lambda: not worker.thread.is_alive()) and worker.depth is None
     rt.close()
+
+
+# --------------------------------------------------------------------------- the exports (only when asked)
+PLY = [("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("red", "u1"), ("green", "u1"), ("blue", "u1")]
+
+
+def _ply(path):
+    head, body = path.read_bytes().split(b"end_header\n", 1)
+    n = int(head.split(b"element vertex ")[1].split(b"\n")[0])
+    return head.decode("ascii"), np.frombuffer(body, PLY, n)
+
+
+def _a_cloud(run, shift=(0.0, 0.0, 0.0)):
+    """A cloud in a package's frame (metres about its origin)."""
+    P = np.array([[0.0, 0.0, 0.0], [1.5, -2.0, 3.25], [-4.0, 10.0, 0.5]]) + shift
+    rgb = np.array([[10, 20, 30], [200, 150, 100], [255, 0, 7]])
+    (run / "live").mkdir(parents=True, exist_ok=True)
+    LC.write_cloud(run / "live", P, rgb, np.array([1, 5, 9]), {"voxel_m": 0.1, "source": "site"})
+    return P, rgb
+
+
+def test_the_clouds_land_where_the_tracks_do_in_rhinos_and_houdinis_axes(tmp_path):
+    """Each camera's package frame -> BNG -> the export's: metres from ORIGIN, heights from Z0 (as
+    points.csv in the .3dm), and Houdini's (Easting +X, height +Y, Northing -Z, as houdini_import.py)."""
+    r1, r2, r3 = tmp_path / "a", tmp_path / "b", tmp_path / "c"
+    P1, rgb = _a_cloud(r1)
+    P2, _ = _a_cloud(r2, (0.0, 0.0, 1.0))
+    (r3 / "live").mkdir(parents=True)                                      # no cloud: left out
+    cams = [{"name": "cam 1", "run": r1, "origin": (1000.0, 2000.0, 5.0)},
+            {"name": "cam 2", "run": r2, "origin": (1010.0, 1995.0, 7.0)},
+            {"name": "cam 1", "run": r1, "origin": (1000.0, 2000.0, 5.0)},    # a second layer of cam 1: once
+            {"name": "cam 3", "run": r3, "origin": (0.0, 0.0, 0.0)}]
+    out = tmp_path / "out"
+    (out / "cloud").mkdir(parents=True)
+    (out / "houdini").mkdir()
+    for f in ("cloud/old.ply", "houdini/cloud_old.ply", "houdini/points.csv"):
+        (out / f).write_text("x")
+    logs = []
+    res = LC.export_clouds(out, cams, (1000.0, 2000.0), 5.0, labels={"cam 1": "1 · cam 1"}, log=logs.append)
+    assert [(c["camera"], c["label"], c["points"], c["source"]) for c in res] == [
+        ("cam 1", "1 · cam 1", 3, "site"), ("cam 2", "cam 2", 3, "site")]
+    assert sorted(p.relative_to(out).as_posix() for p in out.rglob("*")) == [
+        "cloud", "cloud/1_cam_1.ply", "cloud/cam_2.ply", "houdini", "houdini/cloud_1_cam_1.ply",
+        "houdini/cloud_cam_2.ply", "houdini/points.csv"]                   # an earlier export's clouds gone
+    for c, P, d in ((res[0], P1, (0, 0, 0)), (res[1], P2, (10, -5, 2))):
+        head, a = _ply(Path(c["ply"]))
+        want = P + d
+        assert np.allclose(np.c_[a["x"], a["y"], a["z"]], want, atol=1e-5) and np.allclose(c["P"], want)
+        assert (np.c_[a["red"], a["green"], a["blue"]] == rgb).all() and "ORIGIN (1000.000, 2000.000)" in head
+        _, h = _ply(Path(c["houdini"]))
+        assert np.allclose(np.c_[h["x"], h["y"], h["z"]], np.c_[want[:, 0], want[:, 2], -want[:, 1]], atol=1e-5)
+    assert len(logs) == 2 and logs[0].startswith("point cloud: 1 · cam 1: 3 points")
+    assert LC.export_clouds(tmp_path / "none", cams[3:], (0, 0), None, log=logs.append) == []
+    assert "no camera here has one" in logs[-1] and not (tmp_path / "none").exists()
+
+
+def test_the_exports_carry_the_clouds_only_when_asked(saved, capsys):
+    """Off (the default; Live's Point cloud off): the exports as before, no cloud file, no layer.
+    On: cloud/ + houdini/cloud_*.ply, meta.json's list, and a "point cloud" layer in the .3dm."""
+    from groundtrack.cli import main
+    from groundtrack.live_pass_export import export_dir, export_layers, export_pass, prepare_layers
+
+    root, r1, pid, (a1, a2), _ = saved
+    P, rgb = _a_cloud(r1)                                                  # cam 1 has one, cam 2 not
+    quiet = lambda *a: None
+    res = export_pass(r1, pid, rhino=True, build=False, log=quiet)
+    out = export_dir(r1, pid)
+    meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
+    assert "cloud" not in res and "cloud" not in meta
+    assert not (out / "cloud").exists() and not list(out.rglob("cloud_*"))
+    try:
+        import rhino3dm
+    except ImportError:
+        rhino3dm = None
+    if rhino3dm:
+        assert "point cloud" not in [la.Name for la in rhino3dm.File3dm.Read(str(out / "rhino" / "demo.3dm")).Layers]
+    res = export_pass(r1, pid, rhino=True, build=False, log=quiet, cloud=True)
+    meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
+    assert [(c["camera"], c["points"]) for c in res["cloud"]] == [("cam 1", 3)] and meta["cloud"] == res["cloud"]
+    _, a = _ply(out / "cloud" / "cam_1.ply")
+    want = P + (0, 0, 5)                       # the tracks' heights: BNG z (the start camera gives no ground here)
+    assert np.allclose(np.c_[a["x"], a["y"], a["z"]], want, atol=1e-5) and (out / "houdini" / "cloud_cam_1.ply").is_file()
+    if rhino3dm:
+        model = rhino3dm.File3dm.Read(str(out / "rhino" / "demo.3dm"))
+        lay = {la.Id: la for la in model.Layers}
+        path = lambda la: (path(lay[la.ParentLayerId]) + " > " if la.ParentLayerId in lay else "") + la.Name
+        objs = [o for o in model.Objects if path(model.Layers[o.Attributes.LayerIndex]) == "groundtrack > point cloud > cam 1"]
+        assert len(objs) == 1 and objs[0].Attributes.GetUserString("camera") == "cam 1"
+        pc = objs[0].Geometry
+        got = [[pc[i].Location.X, pc[i].Location.Y, pc[i].Location.Z] for i in range(pc.Count)]
+        assert pc.Count == 3 and np.allclose(got, want)
+        one = [o for o in model.Objects if o.Attributes.GetUserString("track_id") == "1"]
+        assert one and abs(one[0].Geometry.PointAtStart.Z - 5.5) < 1e-6         # the tracks' heights, the same frame
+    # the collage: a cloud per camera, named as its layer; the CLI's --cloud
+    b1, _ = PX.drawing(a1, upto=6)
+    b3, _ = PX.drawing(a2, upto=9)
+    layers = [{"camera": "cam 1", "camera_id": "1", "package": r1, "run": r1, "id": pid, "key": 1, "kind": "play",
+               "stacked": False, "up_to": 6, "file": "a.bin"},
+              {"camera": "cam 2", "camera_id": "2", "package": root / "runs" / "demo2" / "v1", "run": r1, "id": pid,
+               "key": 1, "kind": "play", "stacked": False, "up_to": 9, "file": "c.bin"}]
+    o2 = prepare_layers(layers, {"a.bin": b1, "c.bin": b3}, site="demo", root=root)
+    export_layers(o2, log=quiet)
+    assert not (o2 / "cloud").exists()
+    main(["live-layers-export", str(o2), "--cloud"])
+    assert [p.name for p in (o2 / "cloud").glob("*.ply")] == ["1_cam_1.ply"]
+    assert "point cloud: 1 · cam 1: 3 points" in capsys.readouterr().out
+    main(["live-pass-export", str(r1), pid])                               # without --cloud: its files left alone
+    assert (out / "cloud" / "cam_1.ply").is_file() and "cloud" not in json.loads((out / "meta.json").read_text(encoding="utf-8"))
+
+
+def test_live_asks_for_the_clouds_while_its_point_cloud_is_on():
+    js, d = _text(LIVE / "live.js"), _text(PKG / "desktop.py")
+    assert js.count("cloud: !!S.layers.cloud") == 2
+    assert "cloud: !!S.layers.cloud" in js.split("async function passExport(")[1].split("\n}\n")[0]
+    assert "cloud: !!S.layers.cloud" in js.split("async function collageExport(")[1].split("\n}\n")[0]
+    ex = d.split("    def live_export(self, body: dict) -> dict:")[1].split("\n    def ")[0]
+    assert 'args += ["--cloud"] if body.get("cloud") is True else []' in ex
+    ly = d.split("    def live_layers_export(")[1].split("\n    def ")[0]
+    assert 'args += ["--cloud"] if head.get("cloud") is True else []' in ly
+    from groundtrack.cli import build_parser
+    for cmd in ("live-pass-export", "live-layers-export"):
+        args = [cmd, "x"] + (["1"] if cmd == "live-pass-export" else [])
+        assert build_parser().parse_args(args).cloud is False and build_parser().parse_args(args + ["--cloud"]).cloud is True

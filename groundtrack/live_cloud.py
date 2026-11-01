@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import sys
 import threading
 import time
@@ -255,6 +256,18 @@ def _replace(path: Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+def ply_bytes(P: np.ndarray, rgb: np.ndarray, comment: str) -> bytes:
+    """Points as a binary .ply (x y z float, red green blue uchar): Rhino, Houdini, CloudCompare."""
+    ply = np.zeros(len(P), [("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("red", "u1"), ("green", "u1"), ("blue", "u1")])
+    if len(P):
+        ply["x"], ply["y"], ply["z"] = np.asarray(P, np.float64).T
+        ply["red"], ply["green"], ply["blue"] = np.asarray(rgb).T
+    head = ("ply\nformat binary_little_endian 1.0\n" f"comment {comment}\n" f"element vertex {len(P)}\n"
+            "property float x\nproperty float y\nproperty float z\n"
+            "property uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n")
+    return head.encode("ascii") + ply.tobytes()
+
+
 def records(P: np.ndarray, rgb: np.ndarray, n: np.ndarray) -> np.ndarray:
     """The points as CLOUD_DTYPE records (cloud.bin's)."""
     rec = np.zeros(len(P), CLOUD_DTYPE)
@@ -270,13 +283,8 @@ def write_cloud(live: Path, P: np.ndarray, rgb: np.ndarray, n: np.ndarray, info:
     live = Path(live)
     rec = records(P, rgb, n)
     _replace(live / "cloud.bin", rec.tobytes())
-    ply = np.zeros(len(P), [("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("red", "u1"), ("green", "u1"), ("blue", "u1")])
-    ply["x"], ply["y"], ply["z"] = rec["x"], rec["y"], rec["z"]
-    ply["red"], ply["green"], ply["blue"] = rec["r"], rec["g"], rec["b"]
-    head = ("ply\nformat binary_little_endian 1.0\ncomment motus point cloud (the package's frame: metres "
-            "about its origin)\n" f"element vertex {len(P)}\nproperty float x\nproperty float y\nproperty float z\n"
-            "property uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n")
-    _replace(live / "cloud.ply", head.encode("ascii") + ply.tobytes())
+    _replace(live / "cloud.ply", ply_bytes(np.c_[rec["x"], rec["y"], rec["z"]], np.c_[rec["r"], rec["g"], rec["b"]],
+                                           "motus point cloud (the package's frame: metres about its origin)"))
     meta = {"format": FORMAT, "version": VERSION, "n": int(len(P)), "file": "cloud.bin", "record_bytes": CLOUD_DTYPE.itemsize,
             **info}
     _replace(live / "cloud.json", json.dumps(meta, indent=1).encode("utf-8"))
@@ -295,6 +303,56 @@ def read_cloud(live: Path) -> tuple[dict, np.ndarray]:
 def remove_cloud(live: Path) -> None:
     for f in FILES:
         (Path(live) / f).unlink(missing_ok=True)
+
+
+# --------------------------------------------------------------------------- the exports (only when asked)
+def _safe(s) -> str:
+    """A file name from a camera's label ("1 · cam 1" -> "1_cam_1")."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", str(s or "")).strip("_.")[:40] or "camera"
+
+
+def export_clouds(out: Path, cams: list[dict], origin, z0: float | None, labels: dict | None = None,
+                  log=print) -> list[dict]:
+    """The cameras' clouds into an export folder (live_pass_export; asked for: Live's Point cloud on, or
+    --cloud), each camera whose package has one, once:
+        cloud/<camera>.ply          metres from ORIGIN (E, N), Z up, heights from Z0: as the Rhino model
+        houdini/cloud_<camera>.ply  as houdini_import.py: Easting +X, height +Y, Northing -Z
+    cams: [{name, run (its package's run), origin (E0, N0, Z0)}]; labels: {name: its layer's name}.
+    Returns [{camera, label, points, source, ply, houdini, P (n x 3, as cloud/), rgb}]."""
+    out = Path(out)
+    ox, oy, zz = float(origin[0]), float(origin[1]), float(z0 or 0.0)
+    res, seen, files = [], set(), set()
+    for f in [*(out / "cloud").glob("*.ply"), *(out / "houdini").glob("cloud_*.ply")]:
+        f.unlink()                       # an earlier export's (a camera may have lost its cloud since)
+    for c in cams:
+        live = Path(c["run"]) / "live"
+        if c["name"] in seen or not (live / "cloud.json").is_file():
+            continue
+        seen.add(c["name"])
+        meta, rec = read_cloud(live)
+        E0, N0, Z0 = (float(v) for v in c["origin"])
+        P = np.c_[rec["x"].astype(np.float64) + (E0 - ox), rec["y"].astype(np.float64) + (N0 - oy),
+                  rec["z"].astype(np.float64) + (Z0 - zz)]                  # (float64: BNG-sized offsets)
+        rgb = np.c_[rec["r"], rec["g"], rec["b"]]
+        label = (labels or {}).get(c["name"], c["name"])
+        name, k = _safe(label), 2
+        while name in files:
+            name, k = f"{_safe(label)}_{k}", k + 1
+        files.add(name)
+        (out / "cloud").mkdir(parents=True, exist_ok=True)
+        (out / "houdini").mkdir(parents=True, exist_ok=True)
+        ply, hou = out / "cloud" / f"{name}.ply", out / "houdini" / f"cloud_{name}.ply"
+        ply.write_bytes(ply_bytes(P, rgb, f"motus point cloud of {name}: metres from ORIGIN ({ox:.3f}, {oy:.3f}), "
+                                          f"Z up, heights from Z0 {zz:.2f}"))
+        hou.write_bytes(ply_bytes(np.c_[P[:, 0], P[:, 2], -P[:, 1]], rgb,
+                                  f"motus point cloud of {name}: Houdini axes (Easting +X, height +Y, Northing -Z) "
+                                  f"from ORIGIN ({ox:.3f}, {oy:.3f}), Z0 {zz:.2f}"))
+        res.append({"camera": c["name"], "label": label, "points": len(P), "source": meta.get("source"),
+                    "rough": bool(meta.get("rough")), "ply": str(ply), "houdini": str(hou), "P": P, "rgb": rgb})
+        log(f"point cloud: {label}: {len(P)} points -> cloud/{ply.name}, houdini/{hou.name}")
+    if not res:
+        log("point cloud: no camera here has one (Live: Show > Point cloud > Make)")
+    return res
 
 
 # --------------------------------------------------------------------------- a still camera (a site)
