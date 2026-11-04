@@ -100,6 +100,7 @@ CHECK_TOL = 0.15            # people off 1.7 m by more than this: the phone offe
 FOCAL_1920 = 1597.7         # px at 1920 wide: every Richmond calibration (iPhone, 1x)
 DEFAULT_TILT_DEG = 10.0     # no poses: the camera this far down, level
 PRIVACY_CONF = 0.10         # boxes this sure are blurred; the tracker takes the config's conf
+WARM_SHAPES = ((1080, 1920, 3), (1920, 1080, 3))   # the model warmed on both holds at load (a new shape: ~1.2 s)
 BLUR_PAD = 0.15             # each blurred box grown by this much of its size
 HOLD_S = 0.3                # a box stays blurred this long after it was last found
 SPEED_ALPHA = 0.35          # the drawn speed: an exponential average of the step speeds
@@ -868,10 +869,14 @@ class LiveTracker:
             self.precision = _precision_kwargs(bool(det.get("half")) and half_supported(dev))
             model = YOLO(self.cfg.model_path())
             ids = sorted(set(self.cfg.class_ids) | RIDEABLE | PRIVACY_IDS)
-            for _ in range(2):                                  # as _track calls it; the first is slow
-                model.predict(np.zeros((1080, 1920, 3), np.uint8), imgsz=int(det["imgsz"]),
-                              conf=min(float(det["conf"]), PRIVACY_CONF), iou=det["iou"],
-                              classes=ids, device=dev, verbose=False, **self.precision)
+            for shape in WARM_SHAPES:                           # as _track calls it; a shape's first is slow
+                for _ in range(2):
+                    model.predict(np.zeros(shape, np.uint8), imgsz=int(det["imgsz"]),
+                                  conf=min(float(det["conf"]), PRIVACY_CONF), iou=det["iou"],
+                                  classes=ids, device=dev, verbose=False, **self.precision)
+            # the people check's modules, here and not at its first call on the tracking thread
+            # (trajectories loads scipy.signal: 2-9 s, tracking froze; 4 Nov)
+            from . import registration, selfcal, trajectories  # noqa: F401
             self.model = model
             self.mode = "ready"
             self.log(f"model {Path(self.cfg.model_path()).name} ready on {dev}")

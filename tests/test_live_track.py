@@ -11,8 +11,10 @@ import json
 import math
 import shutil
 import subprocess
+import sys
 import time
 from collections import deque
+from pathlib import Path
 from types import SimpleNamespace
 
 import cv2
@@ -569,6 +571,35 @@ def check_of(rows, height_m, logs):
         height_m=height_m, check=None, _check_failed=False, log=logs.append)
     Recording.people_check(rec)
     return rec
+
+
+def test_the_model_load_warms_both_holds_and_the_people_check(tmp_path):
+    """4 Nov: the first people check imported scipy.signal on the tracking thread (tracking froze
+    8.8 s) and a portrait phone's first frame was a shape the model had not seen (1.2 s): both now
+    at the load, before any recording (a fresh interpreter: nothing loaded before)."""
+    code = f"""
+import json, sys
+shapes = []
+class FakeYOLO:
+    def __init__(self, path): pass
+    def predict(self, img, **kw):
+        shapes.append(list(img.shape)); return []
+import ultralytics
+ultralytics.YOLO = FakeYOLO
+from groundtrack.config import default_config
+from groundtrack.live_track import LiveTracker
+mods = ("scipy.signal", "groundtrack.trajectories", "groundtrack.selfcal")
+before = [m in sys.modules for m in mods]
+rt = LiveTracker(r"{tmp_path}", cfg=default_config(), log=lambda m: None)
+rt._load()
+print(json.dumps({{"before": before, "after": [m in sys.modules for m in mods], "shapes": shapes, "mode": rt.mode}}))
+"""
+    root = Path(live_track.__file__).resolve().parents[1]
+    r = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["mode"] == "ready" and out["before"] == [False] * 3 and out["after"] == [True] * 3
+    assert out["shapes"] == [[1080, 1920, 3]] * 2 + [[1920, 1080, 3]] * 2         # landscape and portrait
 
 
 def test_the_people_check_offers_the_height_that_fits():
