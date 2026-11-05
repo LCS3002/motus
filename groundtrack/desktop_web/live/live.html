@@ -141,6 +141,7 @@
       <button class="btn sm" id="pass-clear" title="Every layer off the view (the files stay)">Clear all</button><div class="grow"></div>
       <span class="label pass-n" id="pass-n"></span></div>
     <label class="check" title="K: a play adds to its cameras' layers. Off: a play replaces its cameras' layers (every play is saved either way)"><input type="checkbox" id="pass-stack"> Stack passes <span class="key">K</span></label>
+    <label class="slider" title="How fast a drawn movement may be and still count as real: the machine's limits times this (1×: the footage's own, people 6 m/s). Higher: at a high gain the lines stay whole instead of cut and dotted. The drawing is judged again at once; the pass records it (T / Shift+T: a step up / down)"><span class="label">Threshold <span class="key">T</span></span><input type="range" id="threshold" min="0" max="6" step="1" value="0"><output id="threshold-v" class="num">1×</output></label>
     <button class="btn sm" id="pass-menu-btn" aria-pressed="false" aria-controls="pass-menu" title="The saved passes: load, replay, delete, their output (L)">Saved passes <span class="key">L</span></button>
     <p class="hint">A <b>play</b> redraws the cameras in play and is saved as a <b>pass</b>; it leaves a <b>layer</b> on each camera it drew. All layers together: the <b>collage</b>. Undo and Clear only change the view.</p>
   </section>
@@ -229,9 +230,10 @@
   <div class="part fold" id="part-help" data-fold="help">
   <h2 class="part-h label"><button class="fold-h" aria-expanded="false" aria-controls="help" title="The keys and the mouse (open / fold)">Help<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" stroke-width="1"/></svg></button></h2>
   <section class="fold-body" id="help" hidden>
-    <p class="hint">Space play · ← → a frame (Shift: 10) · Tab the next camera · O focus · W whole scene · I solo · B video boxes · X clear its layer · Z zero · G / Shift+G gain · J smooth · M hold: turn the space (M M: level) · K stack · L saved passes · S section · C cause · U below the ground · V video · 1–4 views · H HUD · P panel · F full screen</p>
+    <p class="hint">Space play · ← → a frame (Shift: 10) · Tab the next camera · O focus · W whole scene · I solo · B video boxes · X clear its layer · Z zero · G / Shift+G gain · J smooth · M hold: turn the space (M M: level) · K stack · T / Shift+T threshold · L saved passes · S section · C cause · U below the ground · V video · 1–4 views · H HUD · P panel · F full screen</p>
     <p class="hint">Mouse: right-drag pan / tilt · Alt-drag roll · hold right + WASD / QE move</p>
     <p class="hint">A play is drawn, saved as a pass, and leaves a layer on each camera it drew; the layers together are the collage.</p>
+    <p class="hint">Threshold: how fast a drawn movement may be and still count as real (1×: the footage's own limits; higher: fewer cuts and dots at a high gain, up to 20×). Recorded with the pass.</p>
     <p class="hint">Layers: every camera in the scene runs at once (one nobody moves holds its pose and draws) · click a camera (or Shift+click it in the 3D view) to move it with the mouse · Shift+click its row, or double Shift+click it in the 3D view: focus · the eye hides it in the view (and the collage's output) · the padlock is the one way to stop a camera: nobody moves it, it does not draw, and Clear and Remove leave its layer (Undo and Load too, once you locked it) · the cameras a Load, an Undo or a replay brings back come in locked: unlock one to put it in play · Point cloud: the layer under the cameras, its eye on / off (off by default: nothing of it runs; on, the exports carry it) · a Realtime recording's: Sharpen, after Stop, remakes it from the walk (a few minutes on the GPU; the cloud only), Rough brings back the one made while it recorded.</p>
   </section>
   </div>

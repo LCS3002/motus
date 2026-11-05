@@ -52,7 +52,7 @@ export function slerp(a, b, u, o = new Array(4)) {
   return o;
 }
 
-const STATE_KEYS = ["clip", "clips", "playing", "time", "duration", "recording", "gain", "scale", "src", "status", "section",
+const STATE_KEYS = ["clip", "clips", "playing", "time", "duration", "recording", "gain", "scale", "src", "status", "section", "stack",
                     "space_held", "space_tilted", "spots", "groups", "start_spot", "site"];
 const TIME_EVERY_MS = 250;
 

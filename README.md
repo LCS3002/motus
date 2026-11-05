@@ -182,7 +182,8 @@ motus app                               # motus live from the start menu; phones
 ```
 
 * **The phone:** a web page, nothing to install. It reads turn, tilt and roll at about 60 Hz, with
-  zero, level and gain (0.1–3×). Holding SPACE turns the space itself in 3D.
+  zero, level and gain (0.1–3×). Holding SPACE turns the space itself in 3D; the other buttons
+  still work with a second finger meanwhile. Section and Stack (passes) are on the phone too.
 * **1–4 phones:** each player takes a camera of the site, on one shared clock. The view grows with
   the cameras in play.
 * **Layers:** Live's panel lists the cameras in the scene like layers in Photoshop. Every camera
@@ -195,6 +196,10 @@ motus app                               # motus live from the start menu; phones
 * **Passes:** one play-through of the clock is a pass. It is saved by itself under
   `<run>/live/passes/<id>/` with the moves, the presses and the machine's counts. Replay it exactly,
   stack or undo passes, or render one to an MP4.
+* **Threshold:** how fast a drawn movement may be and still count as real (Drawing > Threshold, T).
+  1× is the footage's own limits (people 6 m/s). Painting at a high gain, raise it (up to 20×) and
+  the lines stay whole instead of being cut into white dots. The drawing is judged again at once,
+  and the pass records it, so its replay draws the same.
 * **Sheets:** `motus live-sheet <run> <id>` draws the finished drawing (view, plan,
   sections) over a score of how it was played, as PDF and PNG, black or light.
 * **Output:** the collage, the selected camera's layer or a saved pass, as a Sheet or (a pass) a

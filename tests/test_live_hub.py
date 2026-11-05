@@ -803,7 +803,7 @@ class El {
     textContent: "", value: "0", options: [], children: [], disabled: false, offsetWidth: 0,
     max: 1}); }
   addEventListener(t, f) { (this.on[t] ||= []).push(f); }
-  fire(t) { for (const f of this.on[t] || []) f({type: t, pointerId: 1, preventDefault() {}}); }
+  fire(t, x = {}) { for (const f of this.on[t] || []) f({type: t, pointerId: 1, preventDefault() {}, ...x}); }
   setAttribute() {} replaceChildren(...c) { this.options = this.children = c; }
   append(...c) { this.children.push(...c); }
   hasPointerCapture() { return true; } releasePointerCapture() {}
@@ -833,6 +833,7 @@ document.getElementById("picker").hidden = true;   // as in index.html
 await import(phoneUrl);
 if (mode === "spots") await spots();
 else if (mode === "groups") await groups();
+else if (mode === "fingers") await fingers();
 else await clutch();
 console.log(JSON.stringify(out));
 process.exit(0);
@@ -931,6 +932,34 @@ async function spots() {
   last().open();
   last().message({type: "hub", phones: 4, views: 1, player: 4});
   out.joined = {noteHidden: els.note.hidden, who: els.who.textContent};
+}
+
+async function fingers() {
+  // 5 Nov: while a finger holds SPACE the other buttons work with a second finger (no click comes
+  // of its tap: it is taken as it lifts), Stack among them; slid off: nothing; never twice
+  const sp = els.space, last = () => sockets.at(-1);
+  last().open();
+  cut();
+  const two = (el, dx = 0) => {
+    el.fire("pointerdown", {pointerId: 2, isPrimary: false, clientX: 100, clientY: 100});
+    el.fire("pointerup", {pointerId: 2, isPrimary: false, clientX: 100 + dx, clientY: 100});
+  };
+  sp.fire("pointerdown");
+  two(els.zero); two(els.play); two(els.section); two(els.stack); two(els.gainval);
+  out.held = sp.classList.contains("held");
+  two(els.section, 80);
+  out.second = cut();
+  els.stack.fire("click");                       // a click right after that finger's tap: not again
+  out.again = cut();
+  await wait(700);
+  els.stack.fire("click");                       // a first finger's tap: its click, as before
+  out.click = cut();
+  sp.fire("pointerup");
+  out.letGo = cut();
+  last().message({type: "state", stack: true, section: false});
+  out.stackOn = els.stack.classList.contains("on");
+  last().message({type: "state", stack: false});
+  out.stackOff = els.stack.classList.contains("on");
 }
 
 async function groups() {
@@ -1042,6 +1071,45 @@ def test_page_keeps_one_socket_and_never_sticks_the_clutch(tmp_path):
     assert out["level"] == [False, "hold: turn the space"]
     assert out["replaced"] == {"made": 3, "conn": "in use on another page"}
     assert out["takeOver"] == 4
+
+
+def test_page_buttons_work_with_a_second_finger_while_space_is_held(tmp_path):
+    out = _run_page(tmp_path, live_hub.PHONE_WEB / "phone.js", "fingers")
+    assert out["held"] is True
+    assert out["second"] == ["space:true", "zero", "play:null", "section:true", "stack:true", "gain:1"]
+    assert out["again"] == [] and out["click"] == ["stack:false"] and out["letGo"] == ["space:false"]
+    assert out["stackOn"] is True and out["stackOff"] is False
+    html = (live_hub.PHONE_WEB / "index.html").read_text(encoding="utf-8")
+    right = html.split('class="cell right"')[1].split("</section>")[0]
+    assert right.index('id="section"') < right.index('id="stack" class="tbtn stack"') < right.index('id="space"')
+    js = (live_hub.PHONE_WEB / "phone.js").read_text(encoding="utf-8")
+    clicks = re.findall(r'(\S+)\.addEventListener\("click"', js)
+    assert clicks == ["el", "ui.go"]                     # every other button: onTap (Start asks for motion)
+    css = (live_hub.PHONE_WEB / "phone.css").read_text(encoding="utf-8")
+    assert ".zero, .play, .gainval, .tbtn { touch-action: none; }" in css and ".stack::before" in css
+
+
+def test_stack_from_a_phone_and_in_its_state(hub):
+    """Stack passes from the phone: a shared control (true / false; anything else dropped), and the
+    view's state carries it back to every phone."""
+    with view(hub) as v:
+        with phone(hub) as p:
+            recv(v, "hub", pred=lambda m: m["phones"] == 1)
+            p.send(json.dumps({"type": "control", "action": "stack", "value": True}))
+            assert recv(v, "control") == {"type": "control", "action": "stack", "value": True, **mine()}
+            for bad in ("yes", 1, None):
+                p.send(json.dumps({"type": "control", "action": "stack", "value": bad}))
+            p.send(json.dumps({"type": "control", "action": "stack", "value": False}))
+            assert recv(v, "control") == {"type": "control", "action": "stack", "value": False, **mine()}
+            v.send(json.dumps({"type": "state", "stack": True, "time": 2.0}))
+            assert recv(p, "state", pred=lambda m: m.get("time") == 2.0)["stack"] is True
+    assert live_hub.ACTIONS["stack"] == "bool" and live_hub.STATE_FIELDS["stack"] == "bool"
+    assert "stack" not in live_hub.SPOT_ACTIONS
+    pose_js = (live_hub.PHONE_WEB.parent / "desktop_web" / "live" / "pose.js").read_text(encoding="utf-8")
+    assert '"section", "stack",' in pose_js.split("const STATE_KEYS")[1].split("];")[0]
+    live = (live_hub.PHONE_WEB.parent / "desktop_web" / "live" / "live.js").read_text(encoding="utf-8")
+    assert 'else if (action === "stack") setStack(!!value);' in live and "stack: !!S.stack," in live
+    assert "publishState(true);" in live.split("function setStack(on) {")[1].split("\n}")[0]
 
 
 def test_page_spot_picker_player_and_four_phones(tmp_path):
@@ -1297,7 +1365,7 @@ def test_a_steering_phone_rolled_about_its_screen_turns_smoothly():
     page = (live_hub.PHONE_WEB / "phone.js").read_text(encoding="utf-8")
     assert "if (held == null) held = holdAngle(e.alpha, e.beta, e.gamma, null, screenAngle());" in page
     assert "held = holdAngle(e.alpha, e.beta, e.gamma, null, held" not in page   # not at each reading
-    zero = page.split('ui.zero.addEventListener("click"')[1].split("});")[0]
+    zero = page.split("onTap(ui.zero, () => {")[1].split("});")[0]
     # Live's zero in the new hold: the pose rides in the zero (one message, one step in Live); the
     # hold changes only when it was sent
     assert 'if (send({type: "zero", pose: poseMsg(q, "ok")})) { held = h; lastQ = q; sent++; draw(); }' in zero

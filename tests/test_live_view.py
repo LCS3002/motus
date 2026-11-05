@@ -1538,6 +1538,127 @@ def test_smooth_switch_in_the_camera_menu_and_key_j():
     assert "export const SMOOTH = 64;" in (LIVE / "record.js").read_text(encoding="utf-8")
 
 
+THRESHOLD = """
+const Rc = await import(LIVE + "record.js");
+const Rp = await import(LIVE + "replay.js");
+const Ru = await import(LIVE + "rules.js");
+const fs = await import("node:fs");
+const sc = P.prepareScene(job.meta, null), zero = mousePose(0, 0), I = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+const d = T.parseTracks(Uint8Array.from(fs.readFileSync(process.argv[2] + "/tracks.bin")).buffer, job.meta);
+const c0 = P.poseToCamera(sc, zero, zero, 1, 1);
+const view = (o) => Array.from({ length: d.n }, (_, i) => [d.tid[i], d.frame[i], o.kind[i], o.part[i]]);
+// at 1x the walker's 10 m jump is a new identity; at 20x it is one line, judged again from what was drawn
+const tv = new T.TrackView(sc, d, job.rules, job.classes);
+tv.computeReference();
+for (let f = 0; f < 20; f++) tv.perform(f, c0, I, false);
+const at1 = view(tv.out), ref1 = Array.from(tv.rest.part);
+const changed = [tv.setThreshold(20), tv.setThreshold(20)];
+const at20 = view(tv.out), ref20 = Array.from(tv.rest.part);
+const tv20 = new T.TrackView(sc, d, job.rules, job.classes, { threshold: 20 });
+for (let f = 0; f < 20; f++) tv20.perform(f, c0, I, false);
+const fresh = view(tv20.out);
+tv.setThreshold(1);
+out("threshold", { at1, at20, fresh, back: view(tv.out), changed, ref1, ref20,
+                   k: [tv.threshold, tv20.threshold, new T.TrackView(sc, d, job.rules, job.classes, { threshold: -3 }).threshold] });
+out("params", [Ru.classParams({ ...job.rules, threshold: 3 }, "walker"), Ru.classParams({ ...job.rules, threshold: "3" }, "walker"),
+               Ru.classParams({ ...job.rules, threshold: 3 }, "thing"), Ru.threshold({ threshold: NaN }), Ru.threshold(null)]);
+// a pass: 1x, then 20x from frame 12, a pan; its replay (by a view at 5x: the pass's own wins) draws the same.
+// An older pass (no threshold in its start): replayed at 1x.
+function pass(start, at) {
+  const inp = new M.PoseInput(sc), lv = new T.TrackView(sc, d, job.rules, job.classes), rec = new Rc.Recorder();
+  rec.begin(1000, "2026-11-05T10:00:00");
+  rec.event("pass_start", { value: start }, 1000, 0);
+  rec.camera("cam", { name: "cam", id: "cam", points: d.n });
+  rec.event("camera_join", { camera: "cam", player: 1, value: { join_frame: 0 } }, 1000, 0);
+  inp.pose({ ...mousePose(0, 0), src: "web" });
+  let now = 1000, first = true;
+  for (let f = 0; f < 20; f++) {
+    now += 33;
+    rec.frame(now, f / 30);
+    if (f === at) { rec.event("threshold", { value: 20 }); lv.setThreshold(20); }
+    const m = { ...mousePose(1.5 * f, 0), src: "web" };
+    inp.pose(m); inp.tick(now / 1000);
+    const cam = inp.camera(now / 1000);
+    lv.perform(f, cam, I, true);
+    rec.row("cam", { cam, S: I, frame: f, pose: m, gain: 1, scale: 1, counts: Rc.machineCounts(d, lv.out, lv.perf.state, f), player: 1,
+                     src: "web", status: "ok", flags: Rc.PERFORMED | Rc.CHANGED | (first ? Rc.JOINED : 0) });
+    first = false;
+    rec.commit(1, Rc.PLAYING);
+  }
+  rec.event("pass_end", { value: { reason: "test", complete: true } }, now, 19 / 30);
+  const snap = rec.snapshot((n) => n + ".rec");
+  const rv = new T.TrackView(sc, d, job.rules, job.classes, { threshold: 5 });
+  const play = new Rp.Replay(Rp.readRecording(snap.meta, snap.files["clock.rec"], { "cam.rec": snap.files["cam.rec"] }, snap.files["events.jsonl"]),
+                             new Map([["cam", rv]]));
+  play.run();
+  const a = play.drawings().get("cam"), b = lv.snapshot();
+  const evs = snap.files["events.jsonl"].trim().split(String.fromCharCode(10)).map((x) => JSON.parse(x));
+  return { cmp: Rp.compareDrawings(a, b), parts: Array.from(a.part).every((v, i) => v === b.part[i]), k: [lv.threshold, rv.threshold],
+           walker: Array.from({ length: d.n }, (_, i) => i).filter((i) => d.tid[i] === 4 && b.kind[i] < 4).map((i) => b.part[i]),
+           events: evs.filter((e) => e.type === "threshold").map((e) => [e.k, e.value]) };
+}
+out("pass", pass({ threshold: 1 }, 12));
+out("old", pass({}, -1));
+"""
+
+
+@needs_node
+def test_the_threshold_accepts_faster_drawn_movement_and_replays(tmp_path):
+    """Threshold (5 Nov, the user: painting at a high gain nothing sticks, the lines all dots): the
+    rules' class limits times k. At 1x the walker's 10 m jump is a new identity; at 20x one line.
+    A change judges the drawing again from its drawn positions: the same as a view at 20x all along,
+    back at 1x the same as before, the reference too. A pass records it (pass_start, a "threshold"
+    event) and its replay draws exactly what it drew, with the pass's own threshold (1 for an older
+    pass), whatever the view's."""
+    from groundtrack import live_passes as lp
+    from groundtrack import live_rules as lr
+
+    (tmp_path / "tracks.bin").write_bytes(lexicon_tracks().tobytes())
+    res = run_node(tmp_path, THRESHOLD, {"meta": flat_meta(yaw=0.0, tilt=3.0, frames=20), "rules": RULES,
+                                         "classes": {"0": "thing", "1": "walker"}})
+    th = res["threshold"]
+    walker = lambda rows: sorted({r[3] for r in rows if r[0] == 4 and r[2] < 4})           # its parts
+    assert walker(th["at1"]) == [0, 1] and walker(th["at20"]) == [0]
+    assert all(r[2] == 0 for r in th["at20"] if r[0] == 4)                                   # solid
+    assert th["at20"] == th["fresh"] and th["back"] == th["at1"] and th["changed"] == [True, False]
+    assert max(th["ref1"]) == 1 and max(th["ref20"]) == 0                                    # the reference
+    assert th["k"] == [1, 20, 1]
+    assert res["params"] == [[9, 1.5, 6], [3, 0.5, 2], [None, 0, None], 1, 1]
+    assert lr.class_params({**RULES, "threshold": 3}, "walker") == (9.0, 1.5, 6.0)
+    for bad in (None, 0, -2, "3", True, float("nan"), float("inf")):
+        assert lr.threshold({**RULES, "threshold": bad}) == 1.0
+    assert lr.class_params(RULES, "walker") == (3.0, 0.5, 2.0) and lr.threshold(RULES) == 1.0
+    for name, k, ev in (("pass", [20, 20], [[12, 20]]), ("old", [1, 1], [])):
+        r = res[name]
+        assert r["cmp"]["points"] > 40 and r["cmp"]["max_m"] == 0 and r["cmp"]["kind"] == 0 and r["cmp"]["nan"] == 0, (name, r)
+        assert r["parts"] and r["k"] == k and r["events"] == ev, (name, r)
+    # the pan (45 deg/s) sweeps the drawn walker faster than 3 m/s: at 1x cut into a piece a frame or
+    # so (the dotted look), at 20x one line
+    assert set(res["pass"]["walker"]) == {0} and len(set(res["old"]["walker"])) > 5
+    assert "threshold" in lp.EVENTS
+
+
+def test_threshold_slider_key_t_and_the_pass():
+    """Threshold: a stepped slider under Drawing (1x by default, up to 20x), T / Shift+T a step, in the
+    help; it changes every camera's drawing (not a replay's) and is recorded with the pass."""
+    page = (LIVE / "live.html").read_text(encoding="utf-8")
+    drawing = page.split('id="part-drawing"')[1].split('id="part-output"')[0]
+    sl = drawing.split('id="threshold"')[0].rsplit("<input", 1)[1] + drawing.split('id="threshold"')[1].split(">")[0]
+    assert 'type="range"' in sl and 'min="0"' in sl and 'max="6"' in sl and 'value="0"' in sl
+    assert 'Threshold <span class="key">T</span>' in drawing and '<output id="threshold-v" class="num">1×</output>' in drawing
+    assert drawing.index('id="pass-stack"') < drawing.index('id="threshold"') < drawing.index('id="pass-menu-btn"')
+    assert "T / Shift+T threshold" in page.split('id="help"')[1]
+    js = (LIVE / "live.js").read_text(encoding="utf-8")
+    assert "const THRESHOLDS = [1, 1.5, 2, 3, 5, 10, 20];" in js
+    keys = js.split('window.addEventListener("keydown"')[-1].split("window.addEventListener")[0]
+    assert keys.count('k === "t"') == 1 and 'k === "t" || k === "T") setThreshold(' in keys and "e.shiftKey ? -1 : 1" in keys
+    assert "threshold: S.threshold, trails: S.trails" in js                                  # pass_start
+    assert 'rec.event("threshold", { value: k }' in js and "if (L && !R) {" in js            # not a replay's cameras
+    assert "{ tint: rgb, threshold: S.threshold }" in js and "spotThreshold(s); spotTrails(s);" in js   # new cameras, after a replay
+    assert '$("#threshold").oninput = (e) => setThreshold(THRESHOLDS[+e.target.value] || 1);' in js
+    assert "setThreshold" in js.split("window.live = ")[1]
+
+
 SPOTS = """
 const Sp = await import(LIVE + "spots.js");
 const Ps = await import(LIVE + "passes.js");

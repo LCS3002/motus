@@ -53,13 +53,14 @@
 
    Keys: Space play, Z zero (the camera only), G / Shift+G gain, S section, H HUD, P panel,
    F full screen, V video (re-framed / glued / off), M hold: the space clutch (double-tap: level),
-   C cause mode, U below the ground (veil / same), K stack passes, L the saved passes (a menu),
+   C cause mode, U below the ground (veil / same), K stack passes, T / Shift+T the threshold a step
+   up / down, L the saved passes (a menu),
    O focus (this camera framed) / the whole scene, W the whole scene, I solo (this camera alone) / all,
    X clear this camera's layer, B the video boxes of the cameras in play, Tab the next camera, 1-4 views,
    arrows step a frame (Shift: 10).
    URL options (for checks and screenshots): site=<name> (its default start camera, instead of
    run=), players=6363,6367 (phones 1, 2.. on these cameras, without the hub), focus=<camera>,
-   save=0 (no pass is saved), stack=1 (passes build up), ground=A|B|C, look=laptop|projector, video=reframed|glued|0,
+   save=0 (no pass is saved), stack=1 (passes build up), threshold=1..20 (the rules' limits times it), ground=A|B|C, look=laptop|projector, video=reframed|glued|0,
    trails=performed|whole, view=1..4, pan= tilt= roll= (degrees, the mouse head),
    space=pan,tilt,roll (degrees: the crowd's space turned so, with the hand), under=veil|same|dim,
    orbit=x,y,z,tx,ty,tz, f= (frame) or t= (seconds), panel=0, hud=0, ref=1, cause=1, drag=1,
@@ -89,6 +90,8 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const params = new URLSearchParams(location.search);
 const SCALES = [1, 2, 5, 10, 20, 50];           // position scale: 1 m of the phone = this many m
+const THRESHOLDS = [1, 1.5, 2, 3, 5, 10, 20];   // the rules' class limits times this (Threshold; 1: the footage's own)
+const nearestThreshold = (k) => THRESHOLDS.reduce((b, x) => (Math.abs(Math.log(x / (+k > 0 ? +k : 1))) < Math.abs(Math.log(b / (+k > 0 ? +k : 1))) ? x : b), 1);
 const LOOKS = {
   laptop: { line: 1, frame: 1, ghost: 0.55, virt: 0.95, drag: 0.38, ref: 0.5 },
   projector: { line: 1.6, frame: 1.5, ghost: 0.8, virt: 1, drag: 0.55, ref: 0.7 },
@@ -146,6 +149,7 @@ const S = {                                     // the view's settings
   under: UNDER.includes(params.get("under")) ? params.get("under") : "veil",   // the crowd below the ground (U; the user's pick: veil)
   view: 2,
   stack: params.get("stack") === "1",           // passes stay in the view and build up (K; off by default)
+  threshold: nearestThreshold(params.get("threshold") || 1),   // T: faster drawn movement counts as real (1: as the footage)
 };
 /* The open site: {site, title, cams (/api/live/site cameras), groups, startName, startRun, origin0
    (the start package's origin: the scene's), notes, spots: [spot] (the cameras in the scene, the
@@ -272,7 +276,7 @@ function buildSpot(raw, cam, start, tintI) {
   const canvas = raw.live ? Object.assign(document.createElement("canvas"), { width: 640, height: 360 }) : null;
   if (canvas) canvas.getContext("2d").fillRect(0, 0, canvas.width, canvas.height);
   const cams = makeCameras(sc, canvas || vid, { tint: rgb });
-  const tracks = new TrackView(sc, data, rules, (meta.tracks || {}).classes || {}, { tint: rgb });
+  const tracks = new TrackView(sc, data, rules, (meta.tracks || {}).classes || {}, { tint: rgb, threshold: S.threshold });
   tracks.computeReference();
   tracks.setMode("performed");
   const drag = makeDragGrid(sc);
@@ -1075,7 +1079,7 @@ function passBegin() {
   P.plays++;
   P.cur = newStep("play", { run: L.startRun, started: localIso(), dirty: false, left: new Map(), players: new Map(), claimed: new Set() });
   rec.begin(performance.now(), P.cur.started);
-  rec.event("pass_start", { value: { site: L.site, stack: S.stack, trails: S.trails, cameras: L.spots.map((s) => s.name),
+  rec.event("pass_start", { value: { site: L.site, stack: S.stack, threshold: S.threshold, trails: S.trails, cameras: L.spots.map((s) => s.name),
                                      phones: [...hubSeen].map(([player, spot]) => ({ player, spot })) } }, performance.now(), timeline.time);
   for (const s of L.spots) recJoin(s);
   refreshPlayers();
@@ -1327,12 +1331,43 @@ function newPass() {
   passBegin();
 }
 
-/** K: Stack passes on / off (from the next play on; what is in the view stays). */
+/** K: Stack passes on / off (from the next play on; what is in the view stays). Also from a phone. */
 function setStack(on) {
   S.stack = !!on;
   rec.event("stack", { value: S.stack });
   syncPanel();
+  publishState(true);
   flash(S.stack ? "Stack passes: on · a play adds to its cameras' layers" : "Stack passes: off · a play replaces its cameras' layers");
+}
+
+/* Threshold (T / Shift+T; 5 Nov, the user: painting at a high gain nothing sticks, the lines all dots):
+   how fast a drawn movement may be and still count as real. The rules' class limits (max speed, jump
+   tolerance, stitch radius) times k: 1 the footage's own (people 6 m/s, 1 m), up to 20x. Every camera's
+   drawing is judged again from its drawn positions (the same as if k had held all along); the pass
+   records it (pass_start, a "threshold" event) and its replay draws with it. Saved layers stay as
+   they were drawn; a replay keeps its pass's own, this one comes back after it. */
+function setThreshold(k) {
+  k = nearestThreshold(k);
+  if (k !== S.threshold) {
+    S.threshold = k;
+    if (L && !R) {
+      rec.event("threshold", { value: k }, performance.now(), timeline.time);
+      for (const s of [...L.spots, ...L.parked]) spotThreshold(s);
+    }
+    flash(`Threshold: ${k}× · ${k === 1 ? "the footage's own limits" : `drawn movement up to ${k}× as fast counts as real`}`);
+  }
+  showThreshold(k);
+}
+
+function spotThreshold(s) {
+  if (!s.tracks.setThreshold(S.threshold)) return;
+  if (s.tracks.mode === "whole" && s.wholeLocal) { s.tracks.judgeWhole(s.wholeLocal); s.tracks.turnWhole(drawSpace(s)); }
+  s.rebuild = true;
+}
+
+function showThreshold(k) {
+  $("#threshold").value = String(THRESHOLDS.indexOf(k));
+  $("#threshold-v").textContent = `${k}×`;
 }
 
 /** The play being drawn off the view (saved first: every pass is kept): its drawing goes, the
@@ -1602,7 +1637,7 @@ function stopReplay() {
   past.group.visible = true;
   for (const g of L.parked) g.group.visible = true;
   timeline.pause();
-  for (const s of L.spots) { s.tracks.resetPerformed(); s.joinFrame = 0; s.frameShown = -1; s.poseVersion = -1; s.rebuild = true; spotTrails(s); }
+  for (const s of L.spots) { s.tracks.resetPerformed(); s.joinFrame = 0; s.frameShown = -1; s.poseVersion = -1; s.rebuild = true; spotThreshold(s); spotTrails(s); }
   timeline.seekTime(0, false);
   passBegin();
   setPlayers(L.players);
@@ -2205,6 +2240,7 @@ function onControl(action, value, player = null, spot = null) {
   else if (action === "gain" && value > 0) { if (s) setGain(value, s); }
   else if (action === "scale" && value > 0) { if (s) setScale(value, s); }
   else if (action === "section") { L.section.setEnabled(!!value); syncPanel(); }
+  else if (action === "stack") setStack(!!value);
   publishState(true);
 }
 
@@ -2218,7 +2254,7 @@ function publishState(now = false) {
   link.sendState({
     clip: `${start.cam.clip}/${start.cam.run_name}`, clips: [], playing: timeline.playing,
     time: Math.round(timeline.time * 100) / 100, duration: Math.round(timeline.duration * 100) / 100, recording: true,
-    gain: fs.gain, scale: fs.scale, src: fs.src || "none", status: fs.status, section: !!(L.section && L.section.enabled),
+    gain: fs.gain, scale: fs.scale, src: fs.src || "none", status: fs.status, section: !!(L.section && L.section.enabled), stack: !!S.stack,
     space_held: fs.held, space_tilted: fs.tilted,
     spots: L.cams.map((c) => {
       const s = spotOf(c.name) || parkedOf(c.name), o = { name: c.name, clip: `${c.clip}/${c.run_name}`, in_scene: !!s,
@@ -2400,6 +2436,7 @@ function syncPanel() {
   $$("[data-layer]").forEach((c) => { c.checked = !!S.layers[c.dataset.layer]; });
   syncCloudPanel();
   $("#pass-stack").checked = S.stack;
+  showThreshold(S.threshold);
   if (L && L.section) {
     const s = L.section;
     pressed("section", s.preset);
@@ -2939,6 +2976,7 @@ function bindPanel() {
   $("#pass-undo").onclick = () => undoPass();
   $("#pass-clear").onclick = () => clearPasses();
   $("#pass-stack").onchange = (e) => setStack(e.target.checked);
+  $("#threshold").oninput = (e) => setThreshold(THRESHOLDS[+e.target.value] || 1);
   $("#pass-menu-btn").onclick = () => togglePassMenu();
   $("#pass-menu-close").onclick = () => togglePassMenu(false);
   $$("#views [data-view]").forEach((b) => b.onclick = () => setView(+b.dataset.view));
@@ -3094,6 +3132,7 @@ window.addEventListener("keydown", (e) => {
   else if (k === "g") setGain(GAINS.find((x) => x > gain + 1e-6) ?? GAINS[0]);      // the next step up (3: back to 0.1)
   else if (k === "G") setGain(GAINS.findLast((x) => x < gain - 1e-6) ?? GAINS[GAINS.length - 1]);
   else if (k === "k" || k === "K") setStack(!S.stack);
+  else if (k === "t" || k === "T") setThreshold(THRESHOLDS[Math.max(0, Math.min(THRESHOLDS.length - 1, THRESHOLDS.indexOf(S.threshold) + (e.shiftKey ? -1 : 1)))]);
   else if (k === "l" || k === "L") togglePassMenu();
   else if (k === "Escape" && !$("#pass-menu").hidden) togglePassMenu(false);
   else if (k === "o" || k === "O") toggleFocus(L.focus);
@@ -3703,7 +3742,7 @@ async function devPlayers(words) {
   startHub();
   window.live = { get L() { return L; }, S, P, past, timeline, input, mouse, setView, setTrails, setGain, setScale, setSmooth, zero, bench,
                   get link() { return link; }, spacePress, spaceRelease, spaceLevel, toggleCause, cycleUnder, onControl, onPose,
-                  setFocus, setPlayers, panels, camera, orbit, undoPass, clearPasses, clearCamera, collageLayers, setSolo, setFramed, toggleBox, toggleBoxes, markCamera, removeCamera, selectCamera, addCamera, setLock, toggleHidden, cameraAt, loadPass, deletePass, switchSite, setStack,
+                  setFocus, setPlayers, panels, camera, orbit, undoPass, clearPasses, clearCamera, collageLayers, setSolo, setFramed, toggleBox, toggleBoxes, markCamera, removeCamera, selectCamera, addCamera, setLock, toggleHidden, cameraAt, loadPass, deletePass, switchSite, setStack, setThreshold,
                   refreshPasses, get sites() { return sites; }, startReplay, stopReplay, finishReplay, checkReplay, renderPass,
                   passExport, passSheet, sheetView, collageSheet, collageExport, get rec() { return rec; }, get R() { return R; }, RT, ready: true };
   if (SHEET) sheetPage();

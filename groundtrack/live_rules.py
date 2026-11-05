@@ -42,6 +42,7 @@ then DROPPED 4 (nothing drawn) and NOT_YET 255 (not performed yet: the prefix en
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -83,12 +84,24 @@ def rules_config(cfg) -> dict:
     }
 
 
+def threshold(rules: dict) -> float:
+    """Live's Threshold (rules.js threshold; 5 Nov, the user: at a high gain little sticks, the lines
+    all dots): the factor on the classes' limits, so faster drawn movement counts as real. 1 when the
+    rules have none (the footage's own limits) or it is not a positive number."""
+    k = rules.get("threshold")
+    if isinstance(k, bool) or not isinstance(k, (int, float)) or not math.isfinite(k) or k <= 0:
+        return 1.0
+    return float(k)
+
+
 def class_params(rules: dict, name: str):
-    """(max_speed, jump_tolerance_m, stitch_radius_m) of a class name; a class in no group: no
-    cleaning (inf, 0, inf), the visibility rule only."""
+    """(max_speed, jump_tolerance_m, stitch_radius_m) of a class name, times the threshold; a class
+    in no group: no cleaning (inf, 0, inf), the visibility rule only."""
+    k = threshold(rules)
     for g in rules["groups"].values():
         if name in g["classes"]:
-            return float(g["max_speed"]), float(g["jump_tolerance_m"]), float(g["stitch_radius_m"])
+            return (k * float(g["max_speed"]), k * float(g["jump_tolerance_m"]),
+                    k * float(g["stitch_radius_m"]))
     return np.inf, 0.0, np.inf
 
 

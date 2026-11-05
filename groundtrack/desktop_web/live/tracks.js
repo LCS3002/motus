@@ -27,7 +27,7 @@
 import * as THREE from "three";
 import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { project, applySpace, startCamera, speedAsDrawn, trackIndex, rampColor, groundHeight, SPEED_WIN } from "./projection.js";
-import { Rules, SOLID, DROPPED, NOT_YET, FOOTAGE, LIVE } from "./rules.js";
+import { Rules, SOLID, DROPPED, NOT_YET, FOOTAGE, LIVE, threshold } from "./rules.js";
 import { Segs, lineMaterial, dotTexture } from "./lines.js";
 import { snapshot } from "./passes.js";
 
@@ -92,12 +92,15 @@ const guessed = (kind, src, i) => kind[i] !== SOLID || src[i] !== 0;      // the
 export class TrackView {
   /* sc: prepareScene(); data: parseTracks(); rules: the run's rules config (live_rules.rules_config,
      /api/live/rules); classes: scene.json tracks.classes (code -> name); tint: the violet of Live's
-     own guesses in cause mode (the spot's tint with several spots, 08 b). */
-  constructor(sc, data, rules, classes = {}, { tint = VIOLET_RGB } = {}) {
+     own guesses in cause mode (the spot's tint with several spots, 08 b); threshold: Live's
+     Threshold (setThreshold). */
+  constructor(sc, data, rules, classes = {}, { tint = VIOLET_RGB, threshold: k = 1 } = {}) {
     this.sc = sc;
     this.tint = Float32Array.from(tint);
     this.d = data;
-    this.cfg = rules;
+    this.cfg0 = rules;                 // the run's rules; this.cfg: with the threshold
+    this.threshold = threshold({ threshold: k });
+    this.cfg = this.threshold === 1 ? rules : { ...rules, threshold: this.threshold };
     this.classes = classes;
     const n = data.n, P = data.pairs.n;
     this.mode = "performed";
@@ -163,6 +166,24 @@ export class TrackView {
   }
 
   _rules() { return new Rules(this.d, this.cfg, this.classes, { rest: this.restDraw }); }
+
+  /* Live's Threshold (5 Nov): the rules' class limits times k (1: the footage's own), so faster drawn
+     movement counts as real. What is drawn is judged again from the drawn positions it keeps, so the
+     drawing is the one k would have made all along (the rules judge each track's prefix as a
+     whole): performed, the reference, and the whole clip (made again on its next judgeWhole).
+     Returns whether it changed. */
+  setThreshold(k) {
+    k = threshold({ threshold: k });
+    if (k === this.threshold) return false;
+    this.threshold = k;
+    this.cfg = k === 1 ? this.cfg0 : { ...this.cfg0, threshold: k };
+    this.rPerf = this._rules();
+    if (this.perfFrame >= 0) this.rPerf.all(this.perf.X, this.perf.state);
+    this.rWhole = this.whole = null;
+    if (this.rest) this.computeReference();
+    this.dirtyFrom = 0;
+    return true;
+  }
 
   materials() {
     return [this.solid.material, this.guess.material, this.ref.material, this.headMat, ...this.ghost.map((g) => g.material)];

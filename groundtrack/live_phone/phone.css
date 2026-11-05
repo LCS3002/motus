@@ -193,7 +193,7 @@ input[type=range]::-moz-range-thumb {
 }
 input[type=range]:disabled { opacity: .35; }
 
-/* ---------- right: camera, section, space (the laptop chooses the clip / site; every pass
+/* ---------- right: camera, section, stack, space (the laptop chooses the clip / site; every pass
    records by itself) */
 .clip { position: relative; display: grid; gap: 8px; }
 .clip::after {           /* the chevron (the CSP allows no data: images) */
@@ -236,6 +236,13 @@ input[type=range]:disabled { opacity: .35; }
 .tbtn.on::after { content: "On"; color: rgb(0 0 0 / 0.6); }
 .tbtn.on:active { background: var(--fg-2); }
 .section::before { content: ""; width: 11px; height: 15px; flex: none; margin: 0 1px; border: 1px solid currentColor; transform: skewX(-24deg); }
+.stack::before {          /* Stack passes: layers, one over another */
+  content: ""; width: 13px; height: 11px; flex: none;
+  background: linear-gradient(currentColor 0 0) top / 100% 1px no-repeat, linear-gradient(currentColor 0 0) center / 100% 1px no-repeat,
+              linear-gradient(currentColor 0 0) bottom / 100% 1px no-repeat;
+}
+.right .tbtn { min-height: 48px; }     /* Section and Stack above SPACE, on a short landscape phone too */
+.zero, .play, .gainval, .tbtn { touch-action: none; }   /* a 2nd finger on one while SPACE is held: a tap, no pinch */
 
 /* space: the clutch, a controller key. Hold it and the whole space turns with the phone:
    violet while held, a violet outline while the space stays turned, white hairline when level */

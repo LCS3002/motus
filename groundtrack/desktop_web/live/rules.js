@@ -48,10 +48,19 @@ export const FIT_S = 0.6;          // trajectories.Segment.end_state: the line f
 export const SPIKE_PASSES = 3;     // trajectories.remove_spikes
 const EPS_S = 1e-6;                // s: the prediction's time limit is inclusive (float times)
 
-/** [max_speed, jump_tolerance_m, stitch_radius_m] of a class name; in no group: no cleaning. */
+/* Live's Threshold (5 Nov, the user: at a high gain little sticks, the lines all dots): rules.threshold
+   times the classes' limits, so faster drawn movement counts as real. 1 (or none): the footage's own. */
+export function threshold(rules) {
+  const k = rules ? rules.threshold : undefined;
+  return typeof k === "number" && k > 0 && Number.isFinite(k) ? k : 1;
+}
+
+/** [max_speed, jump_tolerance_m, stitch_radius_m] of a class name, times the threshold; in no group:
+    no cleaning. */
 export function classParams(rules, name) {
+  const k = threshold(rules);
   for (const g of Object.values(rules.groups || {}))
-    if ((g.classes || []).includes(name)) return [+g.max_speed, +g.jump_tolerance_m, +g.stitch_radius_m];
+    if ((g.classes || []).includes(name)) return [k * g.max_speed, k * g.jump_tolerance_m, k * g.stitch_radius_m];
   return [Infinity, 0, Infinity];
 }
 
@@ -336,7 +345,8 @@ export function segmentEndState(t, P, atEnd) {
    tracks: tracks.js parseTracks() (t, X (the true points: opts.scene), cls, src, frame, frameStart,
    index = trackIndex(tid));
    rules: the run's config (live_rules.rules_config: track_buffer_s, max_gap_s, stitch,
-   stitch_max_gap_s, groups {name: {classes, max_speed, jump_tolerance_m, stitch_radius_m}});
+   stitch_max_gap_s, groups {name: {classes, max_speed, jump_tolerance_m, stitch_radius_m}}; and
+   threshold, Live's: the groups' limits times it, 1 by default);
    classes: class code -> name (scene.json tracks.classes).
    The machine at rest (the cause), one of: opts.scene, the prepared scene: the start camera's
    drawing of tracks.X (opts.mode "ground" / "hinge", as the tracks are drawn), made here once; or

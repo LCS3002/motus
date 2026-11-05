@@ -4,7 +4,9 @@
    three.js): the caller gives each camera's TrackView (tracks.js) and shows the result.
    - A camera starts at its camera_join (its drawing reset there, from its join frame); a
      camera_leave keeps what it drew, merged with a later stint as the live view merges them.
-   - A row with "performed" performs its frame with the row's camera and space, "changed" as then. */
+   - A row with "performed" performs its frame with the row's camera and space, "changed" as then.
+   - The threshold the pass drew with (pass_start's, 1 in passes before it, 5 Nov) and its changes
+     ("threshold" events) are the cameras' (TrackView.setThreshold) where they came. */
 
 import { PERFORMED, CHANGED, readRecording } from "./record.js";
 import { mergeSnaps } from "./passes.js";
@@ -53,8 +55,14 @@ export class Replay {
       const e = ev[this.ev++];
       if (e.type === "camera_join" && this.tracks.has(e.camera)) this._join(e.camera, (e.value && e.value.join_frame) | 0);
       else if (e.type === "camera_leave" && this.tracks.has(e.camera)) this._leave(e.camera);
+      else if (e.type === "pass_start") this._threshold(e.value && e.value.threshold);
+      else if (e.type === "threshold") this._threshold(e.value);
       if (this.onEvent) this.onEvent(e);
     }
+  }
+
+  _threshold(k) {
+    for (const [name, tv] of this.tracks) if (tv.setThreshold && tv.setThreshold(+k > 0 ? +k : 1)) this.changed.add(name);
   }
 
   _drew(name) { const tv = this.tracks.get(name); return tv.perfFrame > (this.join.get(name) ?? 0); }

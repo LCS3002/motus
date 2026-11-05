@@ -54,8 +54,8 @@ A pose is relayed as {"type": "pose", "v": 1, "src", "seq", "t", "q", "p", "stat
 "spot"} (q normalised), a zero as {"type": "zero", "player", "spot"} (and "pose": the pose it
 is taken at, checked as a pose, when the phone sent one: Live takes both in one step), a control as {"type":
 "control", "action", "value", "player", "spot"}: the actions play, pause, seek, record,
-section, gain, scale, space (true: the clutch held, false: let go) and level (no value: the
-space back to level). Phones never switch the clip or the site (the laptop does): a "clip"
+section, stack (Stack passes on / off), gain, scale, space (true: the clutch held, false: let go)
+and level (no value: the space back to level). Phones never switch the clip or the site (the laptop does): a "clip"
 control from a phone is dropped.
 
 Players and spots (cameras; plans/live_controller/08_space_and_multiplayer.md, b):
@@ -135,13 +135,13 @@ STATUSES = {"ok", "limited", "lost"}
 # the space back to level, a double-tap; spot: a spot claim, a name or null). No "clip": only
 # the laptop chooses the clip / site.
 ACTIONS = {"play": None, "pause": None, "seek": "number", "record": "bool",
-           "section": "bool", "gain": "number", "scale": "number", "space": "bool",
+           "section": "bool", "stack": "bool", "gain": "number", "scale": "number", "space": "bool",
            "level": None, "spot": "name"}
 # what acts on the phone's own spot (the rest is shared: anyone can press it)
 SPOT_ACTIONS = {"gain", "scale", "space", "level"}
 STATE_FIELDS = {"clip": "text", "clips": "texts", "playing": "bool", "time": "number",
                 "duration": "number", "recording": "bool", "gain": "number", "scale": "number",
-                "src": "text", "status": "text", "section": "bool", "space_held": "bool",
+                "src": "text", "status": "text", "section": "bool", "stack": "bool", "space_held": "bool",
                 "space_tilted": "bool", "spots": "spots", "groups": "groups",
                 "start_spot": "name", "site": "text"}
 SITE_FIELDS = ("spots", "groups", "start_spot", "site")         # the site: kept apart

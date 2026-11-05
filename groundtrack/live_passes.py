@@ -70,14 +70,17 @@ two rows everything held. "recording": {"format": "motus-live-rec", "version": 1
                      (R_wc, C are the eased camera; 0, as in older passes: it followed the pose)
         seq u4       the raw pose's seq
     events.jsonl  one JSON object a line: {"k" (the clock row it came before), "t", "T", "type",
-                  "player", "camera", "value"}; types EVENTS: pass_start {site, stack, cameras},
+                  "player", "camera", "value"}; types EVENTS: pass_start {site, stack, threshold
+                  (the rules' limits times it; none before 5 Nov: 1), cameras},
                   pass_end {reason: end / new / undo / clear / site / replay / close}, end (the
                   clock reached the end), play, pause, seek (T), rate, space_press / space_release
                   (who), level, zero (src), gain, scale, trails, stack, site (the new site),
                   camera_join {join_frame} / camera_leave, phone_join {spot} / phone_leave /
                   phone_spot, undo, clear, clear_camera (Clear layer), camera_remove (Remove: it
                   left the scene with its layer), smooth (the camera's Smooth: true / false), lock
-                  (the layers' padlock: true / false), camera_add (+ Camera: the laptop added it).
+                  (the layers' padlock: true / false), camera_add (+ Camera: the laptop added it),
+                  threshold (Live's Threshold: the rules' class limits times it; the drawing judged
+                  again with it there).
 A replay (live/replay.js) applies the camera rows in k order, each camera starting at its
 camera_join's join_frame (its drawing reset there), and redraws exactly what the pass drew.
 """
@@ -123,7 +126,7 @@ CHANGED, HELD, LEVELLING, TILTED, PERFORMED, JOINED, SMOOTH = 1, 2, 4, 8, 16, 32
 EVENTS = ("pass_start", "pass_end", "end", "play", "pause", "seek", "rate", "space_press", "space_release",
           "level", "zero", "gain", "scale", "trails", "stack", "site", "camera_join", "camera_leave",
           "phone_join", "phone_leave", "phone_spot", "undo", "clear", "clear_camera", "camera_remove", "smooth",
-          "lock", "camera_add")
+          "lock", "camera_add", "threshold")
 MAX_REC_BYTES = 1 << 30
 
 

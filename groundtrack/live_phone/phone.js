@@ -87,6 +87,30 @@ export function holdAngle(alpha, beta, gamma, landscape = null, prev = 0) {
   return side ? (ux >= 0 ? 90 : 270) : (uy >= 0 ? 0 : 180);
 }
 
+/**
+ * A button's action on a tap of any finger (5 Nov, the user: while a finger held SPACE the other
+ * buttons did nothing). Browsers make a click of the first finger's tap only, so a second finger's
+ * tap is taken as it lifts (on the same button, not slid off); the first finger's (and a key's)
+ * click as before, and never the same tap twice.
+ */
+export function onTap(el, fn, slop = 24) {
+  const downs = new Map();
+  let at = -1e9;
+  el.addEventListener("pointerdown", e => {
+    if (e.isPrimary === false) downs.set(e.pointerId, [e.clientX || 0, e.clientY || 0]);
+  });
+  el.addEventListener("pointerup", e => {
+    const d = downs.get(e.pointerId);
+    if (!d) return;
+    downs.delete(e.pointerId);
+    if (el.disabled || Math.hypot((e.clientX || 0) - d[0], (e.clientY || 0) - d[1]) > slop) return;
+    at = performance.now();
+    fn(e);
+  });
+  el.addEventListener("pointercancel", e => downs.delete(e.pointerId));
+  el.addEventListener("click", e => { if (performance.now() - at > 600) fn(e); });
+}
+
 // gain slider 0..1000 on a log scale, 0.1-3x (1x about two thirds along)
 const G0 = Math.log(0.1), G1 = Math.log(3);
 export const gainOf = s => Math.exp(G0 + (G1 - G0) * s / 1000);
@@ -100,7 +124,7 @@ function boot() {
   const ui = Object.fromEntries(["start", "go", "msg", "hubst", "conn", "dot", "hz", "rtt",
     "viewst", "spot", "spotbox", "who", "cam", "camname", "camarea",
     "camgo", "picker", "pback", "ptitle", "pnone", "pclose", "plist", "zero", "gain",
-    "gainval", "play", "section", "space", "spacest", "scrub", "tcur", "tdur",
+    "gainval", "play", "section", "stack", "space", "spacest", "scrub", "tcur", "tdur",
     "horizon", "tilt", "turn", "note", "rec", "recnote", "sensors"].map(id => [id, $(id)]));
   const K = new URLSearchParams(location.search).get("k") || "";
   const PID = pageId();
@@ -118,7 +142,7 @@ function boot() {
   let running = false, gotMotion = false, wake = null;
   let spaceDown = false, spaceDownAt = 0, spaceUpAt = -1e9, spaceTapAt = -1e9;
   let seq = 0, lastQ = null, budget = 1, lastT = 0, sent = 0;
-  let pingId = 0, drawPending = false, sectionOn = false;
+  let pingId = 0, drawPending = false, sectionOn = false, stackOn = false;
   let player = null, full = false, spotSig = "", shownSpot = null;     // the hub numbers phones 1-4
   const pings = new Map(), rtts = [];
   const state = {}, dragging = {scrub: false, gain: false};
@@ -380,7 +404,7 @@ function boot() {
   }
   function control(action, value = null) { send({type: "control", action, value}); }
 
-  ui.zero.addEventListener("click", () => {
+  onTap(ui.zero, () => {
     // The hold settled again, and the zero carries the pose it is taken at, in that hold: Live takes
     // the pose and the zero in one step (31 Oct: a pose sent before the zero could be drawn for a
     // frame, turned ~90 deg by the change of hold, and recorded).
@@ -394,14 +418,19 @@ function boot() {
     void ui.zero.offsetWidth;
     ui.zero.classList.add("flash");
   });
-  ui.play.addEventListener("click", () => {
+  onTap(ui.play, () => {
     state.playing = !state.playing;
     control(state.playing ? "play" : "pause");
     showState();
   });
-  ui.section.addEventListener("click", () => {
+  onTap(ui.section, () => {
     sectionOn = !sectionOn;
     control("section", sectionOn);
+    showState();
+  });
+  onTap(ui.stack, () => {                        // Live's Stack passes (K): a play adds to the layers
+    stackOn = !stackOn;
+    control("stack", stackOn);
     showState();
   });
 
@@ -480,10 +509,10 @@ function boot() {
     control("spot", name);
   }
   ui.spot.addEventListener("change", () => claim(ui.spot.value || null));
-  ui.cam.addEventListener("click", () => openPicker());
-  ui.pback.addEventListener("click", () => { pick.area = null; renderPicker(); });
-  ui.pclose.addEventListener("click", () => closePicker());
-  ui.pnone.addEventListener("click", () => { claim(null); closePicker(); });
+  onTap(ui.cam, () => openPicker());
+  onTap(ui.pback, () => { pick.area = null; renderPicker(); });
+  onTap(ui.pclose, () => closePicker());
+  onTap(ui.pnone, () => { claim(null); closePicker(); });
 
   function showSpots() {
     const spots = spotList(), multi = spots.length > 0, grouped = multi && groupList().length > 0;
@@ -617,7 +646,7 @@ function boot() {
     b.classList.toggle("mine", mine);            // this phone's camera (or its area)
     b.classList.toggle("full", full);            // an area with every camera taken
     b.disabled = taken;                          // one phone per camera: greyed
-    b.addEventListener("click", onPick);
+    onTap(b, onPick);
     return b;
   }
 
@@ -635,7 +664,7 @@ function boot() {
     dragging.gain = false;
     control("gain", gainNow());
   });
-  ui.gainval.addEventListener("click", () => {
+  onTap(ui.gainval, () => {
     ui.gain.value = sliderOf(1);
     showGain(1);
     control("gain", 1);
@@ -657,6 +686,7 @@ function boot() {
     Object.assign(state, st);
     if (typeof st.player === "number") player = st.player;
     if (typeof st.section === "boolean") sectionOn = st.section;
+    if (typeof st.stack === "boolean") stackOn = st.stack;
     if (typeof st.gain === "number" && !dragging.gain) {
       ui.gain.value = sliderOf(st.gain);
       showGain(st.gain);
@@ -669,6 +699,7 @@ function boot() {
     ui.play.textContent = state.playing ? "Pause" : "Play";
     ui.play.classList.toggle("on", !!state.playing);
     ui.section.classList.toggle("on", sectionOn);
+    ui.stack.classList.toggle("on", stackOn);
     showSpace();
     if (typeof state.duration === "number") {
       ui.scrub.max = state.duration;
